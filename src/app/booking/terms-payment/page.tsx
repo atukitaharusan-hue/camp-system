@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { dummyOptions } from '@/data/optionsDummyData';
-import { dummyPolicySettings } from '@/data/adminDummyData';
-import { ADMIN_POLICIES_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchOptions, fetchPolicySettings } from '@/lib/admin/fetchData';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { STORAGE_KEY_OPTIONS_PAYLOAD, type OptionsPayload } from '@/types/options';
+import type { AdminPolicySettings } from '@/types/admin';
+import type { OptionItem } from '@/types/options';
 
 interface PaymentMethodView {
   id: string;
@@ -46,7 +46,8 @@ export default function TermsPaymentPage() {
   }, [hasSite, hasStay, router]);
 
   const [payload, setPayload] = useState<OptionsPayload | null>(null);
-  const [policySettings, setPolicySettings] = useState(dummyPolicySettings);
+  const [policySettings, setPolicySettings] = useState<AdminPolicySettings>({ paymentNotice: '', eventEntryNotice: '', paymentMethods: [], cancellationPolicies: [], termsSections: [] });
+  const [allOptions, setAllOptions] = useState<OptionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [agreedCancelPolicy, setAgreedCancelPolicy] = useState(policy.agreedCancellation);
   const [agreedTerms, setAgreedTerms] = useState(policy.agreedTerms);
@@ -65,10 +66,11 @@ export default function TermsPaymentPage() {
   }, []);
 
   useEffect(() => {
-    setPolicySettings(readJsonStorage(ADMIN_POLICIES_KEY, dummyPolicySettings));
+    fetchPolicySettings().then(setPolicySettings);
+    fetchOptions().then(setAllOptions);
   }, []);
 
-  const optionMap = useMemo(() => new Map(dummyOptions.map((item) => [item.id, item])), []);
+  const optionMap = useMemo(() => new Map(allOptions.map((item) => [item.id, item])), [allOptions]);
 
   const paymentMethods = useMemo<PaymentMethodView[]>(
     () =>

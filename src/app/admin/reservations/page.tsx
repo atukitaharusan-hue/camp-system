@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { dummyPlans } from '@/data/adminDummyData';
+import { fetchPlans } from '@/lib/admin/fetchData';
 import { fetchReservations } from '@/lib/admin/fetchReservations';
 import { generateReceptionCode, getPaymentMethodLabel, getPaymentStatusLabel } from '@/types/reservation';
 import type { Database } from '@/types/database';
+import type { AdminPlan } from '@/types/admin';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -123,8 +124,8 @@ function uniqueOptions(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
 }
 
-function extractPlanLabel(planId: string) {
-  const plan = dummyPlans.find((item) => item.id === planId);
+function extractPlanLabel(planId: string, plans: AdminPlan[]) {
+  const plan = plans.find((item) => item.id === planId);
   return plan?.name ?? '未設定';
 }
 
@@ -153,7 +154,7 @@ function exportReservationsCsv(rows: ReservationView[]) {
     String(row.guests ?? 0),
     getPaymentMethodLabel(row.payment_method),
     getPaymentStatusLabel(row.payment_status),
-    statusBadge[row.status]?.label ?? row.status,
+    statusBadge[row.status ?? 'pending']?.label ?? row.status,
   ]);
 
   const csv = [headers, ...lines].map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -183,6 +184,8 @@ export default function AdminReservationsPage() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [referralKeyword, setReferralKeyword] = useState('');
 
+  const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
+
   const loadReservations = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -194,15 +197,16 @@ export default function AdminReservationsPage() {
 
   useEffect(() => {
     loadReservations();
+    fetchPlans().then(setAllPlans);
   }, [loadReservations]);
 
   const reservationViews = useMemo<ReservationView[]>(
     () =>
       reservations.map((row) => {
         const meta = parseCustomerMeta(row.special_requests);
-        return { row, meta, planLabel: extractPlanLabel(meta.planId) };
+        return { row, meta, planLabel: extractPlanLabel(meta.planId, allPlans) };
       }),
-    [reservations],
+    [reservations, allPlans],
   );
 
   const dropdowns = useMemo(
@@ -310,7 +314,7 @@ export default function AdminReservationsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredReservations.map((item) => {
-                const badge = statusBadge[item.row.status];
+                const badge = statusBadge[item.row.status ?? 'pending'];
                 return (
                   <tr key={item.row.id} className="transition-colors hover:bg-gray-50">
                     <td className="px-4 py-3">

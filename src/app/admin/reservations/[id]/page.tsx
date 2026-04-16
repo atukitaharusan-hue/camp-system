@@ -135,7 +135,7 @@ export default function AdminReservationDetailPage() {
   }
 
   const r = reservation;
-  const badge = statusConfig[r.status];
+  const badge = statusConfig[(r.status ?? 'pending') as ReservationStatus];
   const nights = calculateNights(r.check_in_date, r.check_out_date);
   const options = parseOptions(r.options_json);
 
@@ -219,7 +219,7 @@ export default function AdminReservationDetailPage() {
           <Field label="人数" value={`${r.guests}名`} />
           <Field label="サイト番号" value={r.site_number ?? '-'} />
           <Field label="サイト名" value={r.site_name ?? '-'} />
-          <Field label="サイトタイプ" value={getSiteTypeLabel(r.site_type)} />
+          <Field label="サイトタイプ" value={getSiteTypeLabel(r.site_type ?? 'standard')} />
           <Field label="キャンプ場" value={r.campground_name ?? '-'} />
           <Field label="特記事項" value={r.special_requests ?? 'なし'} />
           <Field label="予約日時" value={new Date(r.created_at).toLocaleString('ja-JP')} />

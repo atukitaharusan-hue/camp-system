@@ -4,14 +4,15 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { dummyPlans } from '@/data/adminDummyData';
-import { siteDetails } from '@/data/sitesDummyData';
+import { fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
 import {
   createAdminReservation,
   validateAdminReservation,
   type AdminReservationInput,
 } from '@/lib/admin/createAdminReservation';
 import type { Database } from '@/types/database';
+import type { AdminPlan } from '@/types/admin';
+import type { SiteDetail } from '@/data/sitesDummyData';
 
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
@@ -116,14 +117,22 @@ export default function AdminReservationNewPage() {
     }
   }, []);
 
-  const availablePlans = useMemo(() => dummyPlans.filter((plan) => plan.isPublished), []);
+  const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
+  const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
+
+  useEffect(() => {
+    fetchPlans().then(setAllPlans);
+    fetchSiteDetails().then(setAllSiteDetails);
+  }, []);
+
+  const availablePlans = useMemo(() => allPlans.filter((plan) => plan.isPublished), [allPlans]);
 
   const availableSites = useMemo(() => {
-    if (!form.planId) return siteDetails;
-    const selectedPlan = dummyPlans.find((plan) => plan.id === form.planId);
-    if (!selectedPlan) return siteDetails;
-    return siteDetails.filter((site) => selectedPlan.targetSiteIds.includes(site.id));
-  }, [form.planId]);
+    if (!form.planId) return allSiteDetails;
+    const selectedPlan = allPlans.find((plan) => plan.id === form.planId);
+    if (!selectedPlan) return allSiteDetails;
+    return allSiteDetails.filter((site) => selectedPlan.targetSiteIds.includes(site.id));
+  }, [form.planId, allPlans, allSiteDetails]);
 
   const update = <K extends keyof AdminReservationInput>(key: K, value: AdminReservationInput[K]) => {
     setForm((prev) => {

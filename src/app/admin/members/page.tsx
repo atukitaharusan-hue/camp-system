@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { dummyAdminInvites, dummyAdminMembers } from '@/data/adminDummyData';
-import { ADMIN_INVITES_KEY, ADMIN_MEMBERS_KEY, readJsonStorage, writeJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchAdminMembers, fetchAdminInvites } from '@/lib/admin/fetchData';
 import type { AdminMember, AdminMemberInvite } from '@/types/admin';
 
 function createToken() {
@@ -11,19 +10,22 @@ function createToken() {
 
 export default function AdminMembersPage() {
   const [email, setEmail] = useState('');
-  const [members, setMembers] = useState<AdminMember[]>(dummyAdminMembers);
-  const [invites, setInvites] = useState<AdminMemberInvite[]>(dummyAdminInvites);
+  const [members, setMembers] = useState<AdminMember[]>([]);
+  const [invites, setInvites] = useState<AdminMemberInvite[]>([]);
 
   useEffect(() => {
-    setMembers(readJsonStorage(ADMIN_MEMBERS_KEY, dummyAdminMembers));
-    setInvites(readJsonStorage(ADMIN_INVITES_KEY, dummyAdminInvites));
+    fetchAdminMembers().then(setMembers);
+    fetchAdminInvites().then(setInvites);
   }, []);
 
-  const baseUrl = typeof window === 'undefined' ? '' : `${window.location.origin}/admin/setup`;
+  const [baseUrl, setBaseUrl] = useState('');
+  useEffect(() => {
+    setBaseUrl(`${window.location.origin}/admin/setup`);
+  }, []);
 
   const saveInvites = (nextInvites: AdminMemberInvite[]) => {
     setInvites(nextInvites);
-    writeJsonStorage(ADMIN_INVITES_KEY, nextInvites);
+    // TODO: persist invites to Supabase
   };
 
   const handleInvite = () => {

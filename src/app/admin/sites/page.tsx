@@ -1,17 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import { dummyPlans, dummySiteMapSettings, dummySites } from '@/data/adminDummyData';
-import {
-  ADMIN_PLANS_KEY,
-  ADMIN_SITE_MAP_KEY,
-  ADMIN_SITES_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
-import { buildPublicSiteDetails } from '@/lib/admin/publicConfig';
+import { fetchPlans, fetchSites, saveSites, fetchSiteMapSettings, saveSiteMapSettings, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { getSiteStatusLabel, type AdminPlan, type AdminSite, type AdminSiteMapSettings } from '@/types/admin';
-import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
+import { siteTypeLabels, type SiteType, type SiteDetail } from '@/data/sitesDummyData';
 import SiteEditPanel from '@/components/admin/SiteEditPanel';
 
 const emptySite: AdminSite = {
@@ -36,33 +28,37 @@ const emptySite: AdminSite = {
 };
 
 export default function AdminSitesPage() {
-  const [savedSites, setSavedSites] = useState<AdminSite[]>(dummySites);
-  const [draftSites, setDraftSites] = useState<AdminSite[]>(dummySites);
-  const [savedSiteMaps, setSavedSiteMaps] = useState<AdminSiteMapSettings>(dummySiteMapSettings);
-  const [draftSiteMaps, setDraftSiteMaps] = useState<AdminSiteMapSettings>(dummySiteMapSettings);
-  const [plans, setPlans] = useState<AdminPlan[]>(dummyPlans);
+  const [savedSites, setSavedSites] = useState<AdminSite[]>([]);
+  const [draftSites, setDraftSites] = useState<AdminSite[]>([]);
+  const [savedSiteMaps, setSavedSiteMaps] = useState<AdminSiteMapSettings>({ description: '', imageUrls: [] });
+  const [draftSiteMaps, setDraftSiteMaps] = useState<AdminSiteMapSettings>({ description: '', imageUrls: [] });
+  const [plans, setPlans] = useState<AdminPlan[]>([]);
   const [editingSite, setEditingSite] = useState<AdminSite | null>(null);
   const [previewPlanId, setPreviewPlanId] = useState('');
   const [previewArea, setPreviewArea] = useState('');
   const [previewType, setPreviewType] = useState<SiteType | ''>('');
 
   useEffect(() => {
-    const initialSites = readJsonStorage(ADMIN_SITES_KEY, dummySites);
-    const initialSiteMaps = readJsonStorage(ADMIN_SITE_MAP_KEY, dummySiteMapSettings);
-    const initialPlans = readJsonStorage(ADMIN_PLANS_KEY, dummyPlans);
-    setSavedSites(initialSites);
-    setDraftSites(initialSites);
-    setSavedSiteMaps(initialSiteMaps);
-    setDraftSiteMaps(initialSiteMaps);
-    setPlans(initialPlans);
-    setPreviewPlanId(initialPlans[0]?.id ?? '');
+    Promise.all([fetchSites(), fetchSiteMapSettings(), fetchPlans()]).then(([initialSites, initialSiteMaps, initialPlans]) => {
+      setSavedSites(initialSites);
+      setDraftSites(initialSites);
+      setSavedSiteMaps(initialSiteMaps);
+      setDraftSiteMaps(initialSiteMaps);
+      setPlans(initialPlans);
+      setPreviewPlanId(initialPlans[0]?.id ?? '');
+    });
   }, []);
 
   const hasChanges =
     JSON.stringify(savedSites) !== JSON.stringify(draftSites) ||
     JSON.stringify(savedSiteMaps) !== JSON.stringify(draftSiteMaps);
 
-  const previewSites = useMemo(() => buildPublicSiteDetails(draftSites), [draftSites]);
+  const [previewSites, setPreviewSites] = useState<SiteDetail[]>([]);
+
+  useEffect(() => {
+    fetchSiteDetails().then(setPreviewSites);
+  }, [draftSites]);
+
   const previewPlan = useMemo(
     () => plans.find((plan) => plan.id === previewPlanId) ?? plans[0] ?? null,
     [plans, previewPlanId],
@@ -155,8 +151,8 @@ export default function AdminSitesPage() {
   };
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_SITES_KEY, draftSites);
-    writeJsonStorage(ADMIN_SITE_MAP_KEY, draftSiteMaps);
+    saveSites(draftSites);
+    saveSiteMapSettings(draftSiteMaps);
     setSavedSites(draftSites);
     setSavedSiteMaps(draftSiteMaps);
     window.alert('変更を適用しました');

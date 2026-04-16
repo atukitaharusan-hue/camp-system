@@ -1,21 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { dummyAdminAccount } from '@/data/adminDummyData';
-import { ADMIN_ACCOUNT_KEY, readJsonStorage, writeJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchAdminAccount, saveAdminAccount } from '@/lib/admin/fetchData';
 import type { AdminAccountProfile } from '@/types/admin';
 
 export default function AdminAccountPage() {
-  const [account, setAccount] = useState<AdminAccountProfile>(dummyAdminAccount);
+  const [account, setAccount] = useState<AdminAccountProfile>({ userName: '', email: '', password: '', isInitialized: false, allowConcurrentLogin: true });
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    setAccount(readJsonStorage(ADMIN_ACCOUNT_KEY, dummyAdminAccount));
+    fetchAdminAccount().then(setAccount);
   }, []);
 
   const saveAccount = (next: AdminAccountProfile) => {
     setAccount(next);
-    writeJsonStorage(ADMIN_ACCOUNT_KEY, next);
+    saveAdminAccount(next);
   };
 
   return (

@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { calendarDisplaySettings, dummyPlans } from '@/data/adminDummyData';
+import { fetchPlans, fetchCalendarDisplaySettings, fetchSites } from '@/lib/admin/fetchData';
 import { fetchReservations } from '@/lib/admin/fetchReservations';
 import {
   buildAvailabilityCells,
   getCurrentMonthKey,
   getMonthDates,
   getMonthLabel,
+  DEFAULT_WARNING_RATIO,
 } from '@/lib/admin/availabilityCalendar';
 import type { Database } from '@/types/database';
+import type { AdminPlan, AdminSite } from '@/types/admin';
 
 type ReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 
@@ -22,10 +24,12 @@ function monthShift(monthKey: string, diff: number) {
 
 export default function AdminReservationAvailabilityPage() {
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
+  const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey());
-  const [warningRatio, setWarningRatio] = useState(calendarDisplaySettings.thresholds.warningRatio);
+  const [warningRatio, setWarningRatio] = useState(DEFAULT_WARNING_RATIO);
+  const [publicBaseUrl, setPublicBaseUrl] = useState('/availability-calendar');
 
   const loadReservations = useCallback(async () => {
     setLoading(true);
@@ -41,14 +45,26 @@ export default function AdminReservationAvailabilityPage() {
 
   useEffect(() => {
     loadReservations();
+    fetchPlans().then(setAllPlans);
+    fetchCalendarDisplaySettings().then((settings) => {
+      setWarningRatio(settings.thresholds?.warningRatio ?? DEFAULT_WARNING_RATIO);
+      setPublicBaseUrl(settings.publicBaseUrl ?? '/availability-calendar');
+    });
   }, [loadReservations]);
 
   const dates = useMemo(() => getMonthDates(monthKey), [monthKey]);
-  const cells = useMemo(() => buildAvailabilityCells(reservations, dates), [reservations, dates]);
 
-  const publicLink = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    return `${window.location.origin}${calendarDisplaySettings.publicBaseUrl}?month=${monthKey}`;
+  const [allSites, setAllSites] = useState<AdminSite[]>([]);
+  
+  useEffect(() => {
+    fetchSites().then(setAllSites);
+  }, []);
+
+  const cells = useMemo(() => buildAvailabilityCells(reservations, dates, allPlans, allSites), [reservations, dates, allPlans, allSites]);
+
+  const [publicLink, setPublicLink] = useState('');
+  useEffect(() => {
+    setPublicLink(`${window.location.origin}${publicBaseUrl}?month=${monthKey}`);
   }, [monthKey]);
 
   const copyLink = async () => {
@@ -182,7 +198,7 @@ export default function AdminReservationAvailabilityPage() {
               </tr>
             </thead>
             <tbody>
-              {dummyPlans.map((plan) => (
+              {allPlans.map((plan) => (
                 <tr key={plan.id} className="border-b border-gray-100 last:border-b-0">
                   <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">{plan.name}</td>
                   {dates.map((date) => {

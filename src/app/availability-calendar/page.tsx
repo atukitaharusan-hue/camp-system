@@ -1,9 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { dummyPlans, dummySites } from '@/data/adminDummyData';
+import { fetchPlans, fetchSites } from '@/lib/admin/fetchData';
 import { fetchReservations } from '@/lib/admin/fetchReservations';
-import { ADMIN_PLANS_KEY, ADMIN_SITES_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
 import { buildAvailabilityCells, getCurrentMonthKey, getMonthDates, getMonthLabel } from '@/lib/admin/availabilityCalendar';
 import type { Database } from '@/types/database';
 import type { AdminPlan, AdminSite } from '@/types/admin';
@@ -14,8 +13,8 @@ export default function PublicAvailabilityCalendarPage() {
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey());
-  const [plans, setPlans] = useState<AdminPlan[]>(dummyPlans);
-  const [sites, setSites] = useState<AdminSite[]>(dummySites);
+  const [plans, setPlans] = useState<AdminPlan[]>([]);
+  const [sites, setSites] = useState<AdminSite[]>([]);
 
   const loadReservations = useCallback(async () => {
     const result = await fetchReservations();
@@ -27,8 +26,8 @@ export default function PublicAvailabilityCalendarPage() {
     const params = new URLSearchParams(window.location.search);
     const queryMonth = params.get('month');
     if (queryMonth && /^\d{4}-\d{2}$/.test(queryMonth)) setMonthKey(queryMonth);
-    setPlans(readJsonStorage(ADMIN_PLANS_KEY, dummyPlans));
-    setSites(readJsonStorage(ADMIN_SITES_KEY, dummySites));
+    fetchPlans().then(setPlans);
+    fetchSites().then(setSites);
     loadReservations();
   }, [loadReservations]);
 

@@ -1,12 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
-import { dummyOptions } from '@/data/optionsDummyData';
-import {
-  ADMIN_OPTIONS_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
+import { fetchOptions, saveOptions } from '@/lib/admin/fetchData';
 import type { OptionItem } from '@/types/options';
 
 function createEmptyOption(): OptionItem {
@@ -27,15 +22,16 @@ function createEmptyOption(): OptionItem {
 }
 
 export default function AdminOptionsPage() {
-  const [savedOptions, setSavedOptions] = useState<OptionItem[]>(dummyOptions);
-  const [draftOptions, setDraftOptions] = useState<OptionItem[]>(dummyOptions);
+  const [savedOptions, setSavedOptions] = useState<OptionItem[]>([]);
+  const [draftOptions, setDraftOptions] = useState<OptionItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<'all' | 'rental' | 'event'>('all');
   const [editingOption, setEditingOption] = useState<OptionItem | null>(null);
 
   useEffect(() => {
-    const initial = readJsonStorage(ADMIN_OPTIONS_KEY, dummyOptions);
-    setSavedOptions(initial);
-    setDraftOptions(initial);
+    fetchOptions().then((initial) => {
+      setSavedOptions(initial);
+      setDraftOptions(initial);
+    });
   }, []);
 
   const hasChanges = JSON.stringify(savedOptions) !== JSON.stringify(draftOptions);
@@ -61,7 +57,7 @@ export default function AdminOptionsPage() {
   };
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_OPTIONS_KEY, draftOptions);
+    saveOptions(draftOptions);
     setSavedOptions(draftOptions);
     window.alert('変更を適用しました');
   };

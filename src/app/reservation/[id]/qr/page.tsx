@@ -6,8 +6,7 @@ import { fetchReservationById } from '@/lib/fetchReservationById';
 import QrDisplayCard from '@/components/reservation/QrDisplayCard';
 import ReservationSummaryCard from '@/components/reservation/ReservationSummaryCard';
 import ReservationStatusBadge from '@/components/reservation/ReservationStatusBadge';
-import { dummyQrScreenSettings } from '@/data/adminDummyData';
-import { ADMIN_QR_SCREEN_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchQrScreenSettings } from '@/lib/admin/fetchData';
 import type { AdminQrScreenSettings } from '@/types/admin';
 import type { ReservationDetail } from '@/types/reservation';
 
@@ -23,10 +22,10 @@ export default function ReservationQrPage() {
   const reservationId = params.id as string;
 
   const [state, setState] = useState<PageState>({ type: 'loading' });
-  const [screenSettings, setScreenSettings] = useState<AdminQrScreenSettings>(dummyQrScreenSettings);
+  const [screenSettings, setScreenSettings] = useState<AdminQrScreenSettings>({ title: '', description: '', supportText: '', externalLinkLabel: '', externalLinkUrl: '', footerNote: '' });
 
   useEffect(() => {
-    setScreenSettings(readJsonStorage(ADMIN_QR_SCREEN_KEY, dummyQrScreenSettings));
+    fetchQrScreenSettings().then(setScreenSettings);
   }, []);
 
   useEffect(() => {

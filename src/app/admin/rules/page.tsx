@@ -1,31 +1,28 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { dummySalesRule, dummySites } from '@/data/adminDummyData';
-import {
-  ADMIN_RULES_KEY,
-  ADMIN_SITES_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
-import type { SalesRule } from '@/types/admin';
+import { fetchSalesRule, saveSalesRule, fetchSites } from '@/lib/admin/fetchData';
+import type { SalesRule, AdminSite } from '@/types/admin';
 import RuleEditPanel from '@/components/admin/RuleEditPanel';
 
 export default function AdminRulesPage() {
-  const [savedRule, setSavedRule] = useState<SalesRule>(dummySalesRule);
-  const [draftRule, setDraftRule] = useState<SalesRule>(dummySalesRule);
+  const [savedRule, setSavedRule] = useState<SalesRule>({ id: '', closedDates: [], closedDateRanges: [], siteClosures: [], createdAt: '', updatedAt: '' });
+  const [draftRule, setDraftRule] = useState<SalesRule>({ id: '', closedDates: [], closedDateRanges: [], siteClosures: [], createdAt: '', updatedAt: '' });
+  const [sites, setSites] = useState<AdminSite[]>([]);
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    const initial = readJsonStorage(ADMIN_RULES_KEY, dummySalesRule);
-    setSavedRule(initial);
-    setDraftRule(initial);
+    fetchSalesRule().then((initial) => {
+      setSavedRule(initial);
+      setDraftRule(initial);
+    });
+    fetchSites().then(setSites);
   }, []);
 
   const hasChanges = JSON.stringify(savedRule) !== JSON.stringify(draftRule);
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_RULES_KEY, draftRule);
+    saveSalesRule(draftRule);
     setSavedRule(draftRule);
     window.alert('変更を適用しました');
   };
@@ -117,7 +114,7 @@ export default function AdminRulesPage() {
       {isEditing && (
         <RuleEditPanel
           rule={draftRule}
-          sites={readJsonStorage(ADMIN_SITES_KEY, dummySites)}
+          sites={sites}
           onClose={() => setIsEditing(false)}
           onSave={setDraftRule}
         />

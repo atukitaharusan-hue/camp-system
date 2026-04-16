@@ -4,15 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
-import { dummySiteMapSettings, dummySites } from '@/data/adminDummyData';
+import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
 import { planTypeDefaults, siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
-import {
-  ADMIN_CONFIG_UPDATED_EVENT,
-  ADMIN_SITE_MAP_KEY,
-  ADMIN_SITES_KEY,
-  readJsonStorage,
-} from '@/lib/admin/browserStorage';
-import { buildPublicSiteDetails } from '@/lib/admin/publicConfig';
+import type { AdminSiteMapSettings } from '@/types/admin';
+import type { SiteDetail } from '@/data/sitesDummyData';
 
 const planLabels: Record<string, string> = {
   'off-season-auto': 'オートサイトプラン',
@@ -34,8 +29,8 @@ export default function SitesPage() {
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
   const hasPlan = !!(plan.majorCategoryId && plan.minorPlanId);
 
-  const [sites, setSites] = useState(() => buildPublicSiteDetails(dummySites));
-  const [siteMapSettings, setSiteMapSettings] = useState(dummySiteMapSettings);
+  const [sites, setSites] = useState<SiteDetail[]>([]);
+  const [siteMapSettings, setSiteMapSettings] = useState<AdminSiteMapSettings>({ description: '', imageUrls: [] });
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(storedSiteId && storedSiteId !== 'auto-assigned' ? storedSiteId : null);
   const [isUndesignated, setIsUndesignated] = useState(storedSiteId === 'auto-assigned');
 
@@ -48,18 +43,8 @@ export default function SitesPage() {
   }, [hasPlan, hasStay, router]);
 
   useEffect(() => {
-    const syncAdminConfig = () => {
-      setSites(buildPublicSiteDetails(readJsonStorage(ADMIN_SITES_KEY, dummySites)));
-      setSiteMapSettings(readJsonStorage(ADMIN_SITE_MAP_KEY, dummySiteMapSettings));
-    };
-
-    syncAdminConfig();
-    window.addEventListener(ADMIN_CONFIG_UPDATED_EVENT, syncAdminConfig);
-    window.addEventListener('storage', syncAdminConfig);
-    return () => {
-      window.removeEventListener(ADMIN_CONFIG_UPDATED_EVENT, syncAdminConfig);
-      window.removeEventListener('storage', syncAdminConfig);
-    };
+    fetchSiteDetails().then(setSites);
+    fetchSiteMapSettings().then(setSiteMapSettings);
   }, []);
 
   const compatibleSites = useMemo(

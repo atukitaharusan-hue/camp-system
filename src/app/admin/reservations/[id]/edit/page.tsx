@@ -6,9 +6,10 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { fetchReservationByIdAdmin } from '@/lib/admin/fetchReservations';
 import { updateReservation } from '@/lib/admin/updateReservation';
-import { dummySites } from '@/data/adminDummyData';
+import { fetchSites } from '@/lib/admin/fetchData';
 import { generateReceptionCode } from '@/types/reservation';
 import type { Database } from '@/types/database';
+import type { AdminSite } from '@/types/admin';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type PaymentMethod = Database['public']['Enums']['payment_method'];
@@ -20,6 +21,7 @@ export default function EditReservationPage() {
   const id = params.id as string;
 
   const [reservation, setReservation] = useState<GuestReservationRow | null>(null);
+  const [allSites, setAllSites] = useState<AdminSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,10 @@ export default function EditReservationPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
   const [totalAmount, setTotalAmount] = useState(0);
+
+  useEffect(() => {
+    fetchSites().then(setAllSites);
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -239,7 +245,7 @@ export default function EditReservationPage() {
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
             >
               <option value="">選択してください</option>
-              {dummySites.map((s) => (
+              {allSites.map((s) => (
                 <option key={s.siteNumber} value={s.siteNumber}>
                   {s.siteNumber} - {s.siteName} (定員{s.capacity}名)
                 </option>

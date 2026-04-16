@@ -1,20 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { dummyQrScreenSettings } from '@/data/adminDummyData';
-import { ADMIN_QR_SCREEN_KEY, readJsonStorage, writeJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchQrScreenSettings, saveQrScreenSettings } from '@/lib/admin/fetchData';
 import type { AdminQrScreenSettings } from '@/types/admin';
 
 export default function AdminQrScreenPage() {
-  const [form, setForm] = useState<AdminQrScreenSettings>(dummyQrScreenSettings);
+  const [form, setForm] = useState<AdminQrScreenSettings>({ title: '', description: '', supportText: '', externalLinkLabel: '', externalLinkUrl: '', footerNote: '' });
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setForm(readJsonStorage(ADMIN_QR_SCREEN_KEY, dummyQrScreenSettings));
+    fetchQrScreenSettings().then(setForm);
   }, []);
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_QR_SCREEN_KEY, form);
+    saveQrScreenSettings(form);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1500);
   };

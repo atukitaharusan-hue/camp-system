@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useBookingDraftStore } from "@/stores/bookingDraftStore";
-import { dummyOptions } from "@/data/optionsDummyData";
+import { fetchOptions } from '@/lib/admin/fetchData';
 import { generateQrToken } from "@/lib/generateQrToken";
 import { bookingToReservation } from "@/lib/bookingToReservation";
 import { createReservation } from "@/lib/createReservation";
@@ -104,11 +104,16 @@ export default function BookingConfirmationPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [allOptions, setAllOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetchOptions().then((opts) => setAllOptions(opts.map((o) => ({ id: o.id, name: o.name }))));
+  }, []);
 
   // --- オプション名の逆引きマップ ---
   const optionMap = useMemo(
-    () => new Map(dummyOptions.map((o) => [o.id, o])),
-    []
+    () => new Map(allOptions.map((o) => [o.id, o])),
+    [allOptions]
   );
 
   // --- 必須情報のガード ---

@@ -1,9 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { dummySites } from '@/data/adminDummyData';
-import { ADMIN_SITES_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
-import type { AdminPlan } from '@/types/admin';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchSites } from '@/lib/admin/fetchData';
+import type { AdminPlan, AdminSite } from '@/types/admin';
 
 interface Props {
   plan: AdminPlan;
@@ -16,7 +15,8 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
   const [imagePreview, setImagePreview] = useState(plan.imageUrl || '/site-map-placeholder.svg');
   const [selectedFileName, setSelectedFileName] = useState('');
 
-  const sites = useMemo(() => readJsonStorage(ADMIN_SITES_KEY, dummySites), []);
+  const [sites, setSites] = useState<AdminSite[]>([]);
+  useEffect(() => { fetchSites().then(setSites); }, []);
 
   const handleFieldChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = event.target;

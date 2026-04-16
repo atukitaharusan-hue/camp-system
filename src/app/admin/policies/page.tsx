@@ -1,12 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { dummyPolicySettings } from '@/data/adminDummyData';
-import {
-  ADMIN_POLICIES_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
+import { fetchPolicySettings, savePolicySettings } from '@/lib/admin/fetchData';
 import type { AdminPolicySettings } from '@/types/admin';
 
 function createPaymentMethod() {
@@ -19,19 +14,20 @@ function createPaymentMethod() {
 }
 
 export default function AdminPoliciesPage() {
-  const [savedSettings, setSavedSettings] = useState<AdminPolicySettings>(dummyPolicySettings);
-  const [draftSettings, setDraftSettings] = useState<AdminPolicySettings>(dummyPolicySettings);
+  const [savedSettings, setSavedSettings] = useState<AdminPolicySettings>({ paymentNotice: '', eventEntryNotice: '', paymentMethods: [], cancellationPolicies: [], termsSections: [] });
+  const [draftSettings, setDraftSettings] = useState<AdminPolicySettings>({ paymentNotice: '', eventEntryNotice: '', paymentMethods: [], cancellationPolicies: [], termsSections: [] });
 
   useEffect(() => {
-    const initial = readJsonStorage(ADMIN_POLICIES_KEY, dummyPolicySettings);
-    setSavedSettings(initial);
-    setDraftSettings(initial);
+    fetchPolicySettings().then((initial) => {
+      setSavedSettings(initial);
+      setDraftSettings(initial);
+    });
   }, []);
 
   const hasChanges = JSON.stringify(savedSettings) !== JSON.stringify(draftSettings);
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_POLICIES_KEY, draftSettings);
+    savePolicySettings(draftSettings);
     setSavedSettings(draftSettings);
     window.alert('変更を適用しました');
   };

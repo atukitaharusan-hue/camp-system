@@ -1,12 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { dummyPlans } from '@/data/adminDummyData';
-import {
-  ADMIN_PLANS_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
+import { fetchPlans, savePlans } from '@/lib/admin/fetchData';
 import type { AdminPlan } from '@/types/admin';
 import PlanEditPanel from '@/components/admin/PlanEditPanel';
 
@@ -26,14 +21,15 @@ const emptyPlan: AdminPlan = {
 };
 
 export default function AdminPlansPage() {
-  const [savedPlans, setSavedPlans] = useState<AdminPlan[]>(dummyPlans);
-  const [draftPlans, setDraftPlans] = useState<AdminPlan[]>(dummyPlans);
+  const [savedPlans, setSavedPlans] = useState<AdminPlan[]>([]);
+  const [draftPlans, setDraftPlans] = useState<AdminPlan[]>([]);
   const [editingPlan, setEditingPlan] = useState<AdminPlan | null>(null);
 
   useEffect(() => {
-    const initial = readJsonStorage(ADMIN_PLANS_KEY, dummyPlans);
-    setSavedPlans(initial);
-    setDraftPlans(initial);
+    fetchPlans().then((initial) => {
+      setSavedPlans(initial);
+      setDraftPlans(initial);
+    });
   }, []);
 
   const hasChanges = JSON.stringify(savedPlans) !== JSON.stringify(draftPlans);
@@ -54,7 +50,7 @@ export default function AdminPlansPage() {
   };
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_PLANS_KEY, draftPlans);
+    savePlans(draftPlans);
     setSavedPlans(draftPlans);
     window.alert('変更を適用しました');
   };

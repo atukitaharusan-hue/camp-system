@@ -2,15 +2,15 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { dummyAdminAccount } from '@/data/adminDummyData';
-import { ADMIN_ACCOUNT_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchAdminAccount } from '@/lib/admin/fetchData';
 
 export default function AdminLoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const account = readJsonStorage(ADMIN_ACCOUNT_KEY, dummyAdminAccount);
-    router.replace(account.isInitialized ? '/admin' : '/admin/setup');
+    fetchAdminAccount().then((account) => {
+      router.replace(account.isInitialized ? '/admin' : '/admin/setup');
+    });
   }, [router]);
 
   return (

@@ -1,6 +1,7 @@
-import { calendarDisplaySettings, dummyPlans, dummySites } from '@/data/adminDummyData';
 import type { AdminPlan, AdminSite } from '@/types/admin';
 import type { Database } from '@/types/database';
+
+export const DEFAULT_WARNING_RATIO = 0.3;
 
 type ReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 
@@ -63,14 +64,14 @@ export function getAvailabilityMark(available: number, capacity: number) {
   }
 
   const remainingRatio = available / capacity;
-  return remainingRatio <= calendarDisplaySettings.thresholds.warningRatio ? '△' : '〇';
+  return remainingRatio <= DEFAULT_WARNING_RATIO ? '△' : '〇';
 }
 
 export function buildAvailabilityCells(
   reservations: ReservationRow[],
   dates: string[],
-  plans: AdminPlan[] = dummyPlans,
-  sites: AdminSite[] = dummySites,
+  plans: AdminPlan[],
+  sites: AdminSite[],
 ): AvailabilityCell[] {
   return dates.flatMap((date) =>
     plans.map((plan) => {

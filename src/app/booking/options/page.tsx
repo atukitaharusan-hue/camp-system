@@ -4,8 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OptionItem, OptionSelection, OptionsPayload, BookingContext, STORAGE_KEY_OPTIONS_PAYLOAD } from "@/types/options";
-import { dummyOptions } from "@/data/optionsDummyData";
-import { ADMIN_OPTIONS_KEY, readJsonStorage } from "@/lib/admin/browserStorage";
+import { fetchOptions } from '@/lib/admin/fetchData';
 import { useBookingDraftStore } from "@/stores/bookingDraftStore";
 import BookingSummaryBar from "@/components/booking/BookingSummaryBar";
 import RentalOptionCard from "@/components/booking/RentalOptionCard";
@@ -70,10 +69,10 @@ export default function OptionsPage() {
     [stay, site]
   );
 
-  const [optionsSource, setOptionsSource] = useState(dummyOptions);
+  const [optionsSource, setOptionsSource] = useState<OptionItem[]>([]);
 
   useEffect(() => {
-    setOptionsSource(readJsonStorage(ADMIN_OPTIONS_KEY, dummyOptions));
+    fetchOptions().then(setOptionsSource);
   }, []);
 
   const options = optionsSource.filter((o) => o.isActive);

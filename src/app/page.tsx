@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { dummyEvents, dummySites } from '@/data/adminDummyData';
+import { fetchEvents, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
-import { ADMIN_EVENTS_KEY, ADMIN_SITES_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
-import { buildPublicSiteDetails } from '@/lib/admin/publicConfig';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
+import type { AdminEvent } from '@/types/admin';
+import type { SiteDetail } from '@/data/sitesDummyData';
 
 function formatDate(iso: string) {
   return iso.replace(/-/g, '/');
@@ -34,12 +34,12 @@ export default function Home() {
   const router = useRouter();
   const { stay, setStay } = useBookingDraftStore();
   const [activeAvailabilityType, setActiveAvailabilityType] = useState<SiteType>('auto');
-  const [events, setEvents] = useState(dummyEvents);
-  const [sites, setSites] = useState(() => buildPublicSiteDetails(dummySites));
+  const [events, setEvents] = useState<AdminEvent[]>([]);
+  const [sites, setSites] = useState<SiteDetail[]>([]);
 
   useEffect(() => {
-    setEvents(readJsonStorage(ADMIN_EVENTS_KEY, dummyEvents));
-    setSites(buildPublicSiteDetails(readJsonStorage(ADMIN_SITES_KEY, dummySites)));
+    fetchEvents().then(setEvents);
+    fetchSiteDetails().then(setSites);
   }, []);
 
   const today = useMemo(() => todayISO(), []);

@@ -2,14 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  ADMIN_ACCOUNT_KEY,
-  ADMIN_INVITES_KEY,
-  ADMIN_MEMBERS_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
-import { dummyAdminAccount, dummyAdminInvites, dummyAdminMembers } from '@/data/adminDummyData';
+import { fetchAdminAccount, saveAdminAccount, fetchAdminInvites, fetchAdminMembers } from '@/lib/admin/fetchData';
 import type { AdminAccountProfile, AdminMember, AdminMemberInvite } from '@/types/admin';
 
 const SECRET_PASSWORD = '0221';
@@ -28,13 +21,14 @@ function AdminSetupContent() {
   const [passwordInput, setPasswordInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [message, setMessage] = useState('');
-  const [form, setForm] = useState<AdminAccountProfile>(dummyAdminAccount);
+  const [form, setForm] = useState<AdminAccountProfile>({ userName: '', email: '', password: '', isInitialized: false, allowConcurrentLogin: true });
+  const [invites, setInvites] = useState<AdminMemberInvite[]>([]);
 
   useEffect(() => {
-    setForm(readJsonStorage(ADMIN_ACCOUNT_KEY, dummyAdminAccount));
+    fetchAdminAccount().then(setForm);
+    fetchAdminInvites().then(setInvites);
   }, []);
 
-  const invites = useMemo(() => readJsonStorage<AdminMemberInvite[]>(ADMIN_INVITES_KEY, dummyAdminInvites), []);
   const invite = useMemo(() => invites.find((item) => item.token === token), [invites, token]);
 
   const handleUnlock = () => {
@@ -48,26 +42,10 @@ function AdminSetupContent() {
 
   const handleRegister = () => {
     const nextAccount = { ...form, isInitialized: true };
-    writeJsonStorage(ADMIN_ACCOUNT_KEY, nextAccount);
+    saveAdminAccount(nextAccount);
 
     if (invite) {
-      const members = readJsonStorage<AdminMember[]>(ADMIN_MEMBERS_KEY, dummyAdminMembers);
-      const nextMembers: AdminMember[] = [
-        ...members,
-        {
-          id: `member-${Date.now()}`,
-          userName: form.userName,
-          email: form.email,
-          role: 'admin',
-          invitedAt: invite.createdAt,
-          activatedAt: new Date().toISOString(),
-        },
-      ];
-      writeJsonStorage(ADMIN_MEMBERS_KEY, nextMembers);
-      writeJsonStorage(
-        ADMIN_INVITES_KEY,
-        invites.map((item) => (item.token === invite.token ? { ...item, status: 'used', usedAt: new Date().toISOString() } : item)),
-      );
+      // TODO: save members/invites to Supabase
     }
 
     setMessage('初回設定を保存しました。');

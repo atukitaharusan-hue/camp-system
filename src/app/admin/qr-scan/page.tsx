@@ -1,8 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 export default function AdminQrScanPage() {
-  const publicCheckinLink =
-    typeof window === 'undefined' ? '/checkin' : `${window.location.origin}/checkin`;
+  const [publicCheckinLink, setPublicCheckinLink] = useState('/checkin');
+  useEffect(() => {
+    setPublicCheckinLink(`${window.location.origin}/checkin`);
+  }, []);
 
   return (
     <div className="max-w-4xl">

@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
-import { dummyPlans } from '@/data/adminDummyData';
-import { ADMIN_PLANS_KEY, readJsonStorage } from '@/lib/admin/browserStorage';
+import { fetchPlans } from '@/lib/admin/fetchData';
 import type { AdminPlan } from '@/types/admin';
 
 const planCategories = [
@@ -45,7 +44,7 @@ function formatDate(iso: string) {
 export default function PlansPage() {
   const router = useRouter();
   const { stay, plan, setPlan } = useBookingDraftStore();
-  const [adminPlans, setAdminPlans] = useState<AdminPlan[]>(dummyPlans);
+  const [adminPlans, setAdminPlans] = useState<AdminPlan[]>([]);
 
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
   const hasPlan = !!(plan.majorCategoryId && plan.minorPlanId);
@@ -57,7 +56,7 @@ export default function PlansPage() {
   }, [hasStay, router]);
 
   useEffect(() => {
-    setAdminPlans(readJsonStorage(ADMIN_PLANS_KEY, dummyPlans));
+    fetchPlans().then(setAdminPlans);
   }, []);
 
   const decoratedCategories = useMemo(

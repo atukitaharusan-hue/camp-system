@@ -2,232 +2,217 @@
 
 キャンプ場の予約〜チェックインまでを完全自動化するWebアプリケーションプラットフォーム。
 
-## 🚀 概要
+## 概要
 
 - **予約業務の自動化**: 人件費削減とUX向上を実現
-- **LINE連携**: 外部リンクからの流入で予約導線を最適化
+- **LINE連携**: LIFF (LINE Front-end Framework) によるLINEアプリ内予約
 - **QRチェックイン**: 非接触チェックインで効率化
 - **マルチキャンプ場対応**: 将来的な事業拡大を見据えた設計
 
-## 🛠️ 技術スタック
+## 技術スタック
 
-- **Frontend**: Next.js 16 (App Router)
-- **Backend**: Supabase (PostgreSQL + Auth + Storage)
-- **決済**: Stripe
-- **通知**: LINE Messaging API (将来拡張)
-- **言語**: TypeScript
-- **スタイリング**: Tailwind CSS
-- **LINE LIFF**: LINEアプリ内Webアプリ
+| カテゴリ | 技術 |
+|---|---|
+| Frontend | Next.js 16 (App Router / Turbopack) |
+| Backend | Supabase (PostgreSQL + Auth + RLS) |
+| 決済 | Stripe |
+| LINE連携 | @line/liff, LIFF CLI |
+| 言語 | TypeScript 5 |
+| スタイリング | Tailwind CSS 4 |
+| 状態管理 | Zustand |
 
-## 📋 機能一覧
+## 前提条件
 
-### ユーザー機能
-- ✅ 日付・人数選択
-- ✅ サイト選択UI（座席指定）
-- ✅ オプション選択（アーリーチェックイン等）
-- ✅ 決済（Stripeクレジットカード、現地決済）
-- ✅ 予約確認・通知
-- ✅ LINE LIFFログイン
-- ✅ QRコードチェックイン
+- **Node.js** v22 以上
+- **npm** v10 以上
+- **Docker** (Supabase ローカル環境に必要)
+- **Supabase CLI** v2.60 以上
+- **mkcert** (LIFF ローカル開発に必要)
 
-### 管理者機能
-- ✅ 予約一覧・管理
-- ✅ サイト情報管理（水はけ・傾斜・景観）
-- ✅ CSVエクスポート
-- ✅ 手動予約追加
-- ✅ 管理画面 (`/admin`)
-
-### チェックイン機能
-- ✅ QRコードチェックイン (`/checkin?id=xxx`)
-- ✅ チェックイン時間記録
-- ✅ ステータス更新
-
-## 🗄️ データベース設計
-
-詳細は [`docs/database-schema.md`](docs/database-schema.md) を参照してください。
-
-### 主要テーブル
-- `profiles` - ユーザー情報
-- `campgrounds` - キャンプ場情報
-- `sites` - サイト情報
-- `reservations` - 予約情報
-- `payments` - 決済情報
-- `check_ins` - チェックイン情報
-
-## 🚀 セットアップ
-
-### 1. リポジトリのクローン
 ```bash
-git clone <repository-url>
-cd campsite-booking
+# Supabase CLI のインストール
+brew install supabase/tap/supabase
+
+# mkcert のインストール
+brew install mkcert
 ```
 
-### 2. 依存関係のインストール
+## ローカル開発環境セットアップ
+
+### 1. リポジトリのクローンと依存関係インストール
+
 ```bash
+git clone https://github.com/atukitaharusan-hue/camp-system.git
+cd camp-system
 npm install
 ```
 
-### 3. 環境変数の設定
-`.env.local` ファイルを作成し、以下の値を設定：
+### 2. 環境変数の設定
+
+`.env.local` を作成：
 
 ```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+# Supabase (ローカル)
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase start で表示される anon key>
 
-# Stripe
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key_here
-STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
-STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+# Stripe (テスト用ダミーまたは実際のテストキー)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_dummy
+STRIPE_SECRET_KEY=sk_test_dummy
 
 # LINE LIFF
-NEXT_PUBLIC_LINE_LIFF_ID=your_line_liff_id_here
+NEXT_PUBLIC_LINE_LIFF_ID=<LIFF ID>
 
-# LINE Messaging API (将来拡張用)
-LINE_CHANNEL_ACCESS_TOKEN=your_line_channel_access_token_here
-LINE_CHANNEL_SECRET=your_line_channel_secret_here
+# Admin
+ADMIN_EMAILS=your-email@example.com
 ```
 
-### 4. データベースのセットアップ
-Supabaseプロジェクトを作成し、以下のSQLを実行：
+### 3. Supabase ローカル環境の起動
+
+Docker が起動していることを確認してから：
 
 ```bash
-supabase db push
+supabase start
 ```
 
-または、マイグレーションファイルを実行：
+初回起動時にマイグレーションとシードデータが自動適用されます。
+起動後に表示される `anon key` を `.env.local` に設定してください。
+
+### 4. データベース型の生成
+
 ```bash
-supabase migration up
+npx supabase gen types typescript --local > src/types/database.ts
 ```
 
 ### 5. 開発サーバーの起動
+
 ```bash
 npm run dev
 ```
 
-ブラウザで `http://localhost:3000` にアクセス。
+`http://localhost:3000` でアクセスできます。
 
-## 📱 LINE LIFF 設定
+## LINE LIFF ローカル開発
 
-1. LINE Developers Console で LIFF アプリを作成
-2. LIFF ID を取得して環境変数に設定
-3. Endpoint URL を `https://your-domain.com` に設定
-4. 必要に応じてスコープを設定（profile, openid）
+LIFF 連携をローカルで開発する場合の手順です。
 
-## 💳 Stripe 設定
+### 1. LIFF CLI のインストール
 
-1. Stripe Dashboard でアカウント作成
-2. APIキーを取得して環境変数に設定
-3. Webhook エンドポイントを設定（決済完了通知用）
-
-## 🔧 ビルド・デプロイ
-
-### ビルド
 ```bash
-npm run build
+npm install -g @line/liff-cli
 ```
 
-### プロダクションデプロイ
+### 2. チャネルの追加
+
+[LINE Developers Console](https://developers.line.biz/console/) でチャネルを作成済みであることを確認し：
+
 ```bash
+liff-cli channel add <チャネルID>
+# チャネルシークレットの入力を求められます
+
+liff-cli channel use <チャネルID>
+```
+
+### 3. LIFF アプリの作成
+
+```bash
+liff-cli app create \
+  --channel-id <チャネルID> \
+  --name "Camp System Dev" \
+  --endpoint-url https://localhost:9000 \
+  --view-type full
+```
+
+表示された LIFF ID を `.env.local` の `NEXT_PUBLIC_LINE_LIFF_ID` に設定します。
+
+### 4. HTTPS 証明書の作成
+
+```bash
+mkcert -install
+mkcert localhost
+```
+
+プロジェクトルートに `localhost.pem` と `localhost-key.pem` が生成されます（`.gitignore` 済み）。
+
+### 5. LIFF プロキシサーバーの起動
+
+Next.js dev サーバーが `http://localhost:3000` で起動している状態で：
+
+```bash
+liff-cli serve \
+  --liff-id <LIFF ID> \
+  --url http://localhost:3000/
+```
+
+| URL | 用途 |
+|---|---|
+| `http://localhost:3000` | Next.js 開発サーバー |
+| `https://localhost:9000` | LIFF HTTPS プロキシ |
+| `https://liff.line.me/<LIFF ID>` | LINE アプリからのアクセス |
+
+## ビルド
+
+```bash
+npm run build
 npm start
 ```
 
-Vercel, Netlify 等のプラットフォームにデプロイ可能。
-
-## 📂 プロジェクト構造
+## プロジェクト構造
 
 ```
-src/
-├── app/                    # Next.js App Router
-│   ├── admin/             # 管理画面
-│   ├── api/               # API Routes
-│   ├── booking/           # 予約フロー
-│   │   ├── confirmation/  # 予約確認
-│   │   ├── options/       # オプション選択
-│   │   └── sites/         # サイト選択
-│   ├── checkin/           # チェックイン
-│   └── layout.tsx         # ルートレイアウト
-├── components/            # 再利用コンポーネント
-│   ├── QRCodeDisplay.tsx # QRコード表示
-│   └── StripePayment.tsx # Stripe決済
-├── lib/                   # ユーティリティ
-│   ├── liff.ts           # LINE LIFF 設定
-│   ├── stripe.ts         # Stripe 設定
-│   └── supabase.ts       # Supabase 設定
-└── types/                 # TypeScript 型定義
-    └── database.ts        # DB型定義
-```
-
-## 🤝 貢献
-
-1. Fork する
-2. Feature ブランチを作成 (`git checkout -b feature/amazing-feature`)
-3. コミットする (`git commit -m 'Add amazing feature'`)
-4. Push する (`git push origin feature/amazing-feature`)
-5. Pull Request を作成
-
-## 📄 ライセンス
-
-このプロジェクトは MIT ライセンスの下で公開されています。
-- `check_ins` - チェックイン履歴
-
-## 🚀 開発環境セットアップ
-
-### 1. 依存関係インストール
-```bash
-npm install
-```
-
-### 2. 環境変数設定
-```bash
-cp .env.example .env.local
-```
-
-以下の環境変数を設定してください：
-- Supabase URL & Keys
-- Stripe Keys
-- LINE API Keys (将来拡張用)
-
-### 3. Supabase マイグレーション実行
-```bash
-# Supabase CLI がインストールされている場合
-supabase db push
-```
-
-または、Supabase Dashboard からマイグレーションSQLを手動実行。
-
-### 4. 開発サーバー起動
-```bash
-npm run dev
-```
-
-## 📁 プロジェクト構造
-
-```
-campsite-booking/
+camp-system/
 ├── src/
-│   ├── app/                 # Next.js App Router
-│   ├── lib/                 # ユーティリティ・設定
-│   │   ├── supabase.ts     # Supabase クライアント
-│   │   └── stripe.ts       # Stripe 設定
-│   └── types/              # TypeScript 型定義
+│   ├── app/                     # Next.js App Router
+│   │   ├── admin/              # 管理画面
+│   │   ├── api/                # API Routes
+│   │   ├── booking/            # 予約フロー
+│   │   ├── checkin/            # チェックイン
+│   │   └── reservation/        # 予約詳細
+│   ├── components/             # UIコンポーネント
+│   │   ├── admin/              # 管理画面用
+│   │   ├── booking/            # 予約フロー用
+│   │   └── reservation/        # 予約詳細用
+│   ├── lib/                    # ユーティリティ
+│   │   ├── admin/              # 管理系データアクセス (fetchData.ts 等)
+│   │   ├── liff.ts             # LINE LIFF 設定
+│   │   ├── stripe.ts           # Stripe 設定
+│   │   ├── supabase.ts         # Supabase クライアント
+│   │   └── supabaseServer.ts   # Supabase サーバー用クライアント
+│   ├── stores/                 # Zustand ストア
+│   └── types/                  # TypeScript 型定義
+│       └── database.ts         # Supabase 自動生成型
 ├── supabase/
-│   └── migrations/         # DB マイグレーション
-├── docs/                   # ドキュメント
-└── public/                 # 静的ファイル
+│   ├── migrations/             # DB マイグレーション (8ファイル)
+│   └── seed.sql                # 初期データ
+├── docs/
+│   └── database-schema.md      # DB設計ドキュメント
+└── public/                     # 静的ファイル
 ```
 
-## 🔒 セキュリティ
+## データベース
+
+詳細は [docs/database-schema.md](docs/database-schema.md) を参照。
+
+### 主要テーブル
+
+| テーブル | 用途 |
+|---|---|
+| `profiles` | ユーザー情報 |
+| `campgrounds` | キャンプ場情報 |
+| `sites` | サイト情報 |
+| `plans` / `plan_sites` | 料金プラン |
+| `options` | オプション（レンタル・イベント等） |
+| `reservations` / `guest_reservations` | 予約情報 |
+| `payments` | 決済情報 |
+| `check_ins` | チェックイン履歴 |
+| `app_settings` | アプリ設定 |
+| `notifications` / `action_logs` | 通知・操作ログ |
+
+## セキュリティ
 
 - Row Level Security (RLS) によるデータアクセス制御
 - トランザクションによる同時予約競合防止
-- 決済情報の安全な処理（Stripe）
-
-## 📊 パフォーマンス
-
-- 高速レスポンス（同時予約時の競合防止）
-- 最適化されたデータベースインデックス
+- 決済情報の安全な処理 (Stripe)
 - 静的生成による高速なページロード
 
 ## 🚀 デプロイ

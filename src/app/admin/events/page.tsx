@@ -1,12 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
-import {
-  ADMIN_EVENTS_KEY,
-  readJsonStorage,
-  writeJsonStorage,
-} from '@/lib/admin/browserStorage';
-import { dummyEvents } from '@/data/adminDummyData';
+import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
+import { fetchEvents, saveEvents } from '@/lib/admin/fetchData';
 import type { AdminEvent } from '@/types/admin';
 
 function createEmptyEvent(): AdminEvent {
@@ -32,19 +27,20 @@ function formatDateTime(value: string) {
 }
 
 export default function AdminEventsPage() {
-  const [savedEvents, setSavedEvents] = useState<AdminEvent[]>(dummyEvents);
-  const [draftEvents, setDraftEvents] = useState<AdminEvent[]>(dummyEvents);
+  const [savedEvents, setSavedEvents] = useState<AdminEvent[]>([]);
+  const [draftEvents, setDraftEvents] = useState<AdminEvent[]>([]);
   const [editingEvent, setEditingEvent] = useState<AdminEvent | null>(null);
 
   useEffect(() => {
-    const initial = readJsonStorage(ADMIN_EVENTS_KEY, dummyEvents);
-    setSavedEvents(initial);
-    setDraftEvents(initial);
+    fetchEvents().then((initial) => {
+      setSavedEvents(initial);
+      setDraftEvents(initial);
+    });
   }, []);
 
-  const previewEventLink = useMemo(() => {
-    if (typeof window === 'undefined') return '/';
-    return `${window.location.origin}/`;
+  const [previewEventLink, setPreviewEventLink] = useState('/');
+  useEffect(() => {
+    setPreviewEventLink(`${window.location.origin}/`);
   }, []);
 
   const hasChanges = JSON.stringify(savedEvents) !== JSON.stringify(draftEvents);
@@ -65,7 +61,7 @@ export default function AdminEventsPage() {
   };
 
   const handleSave = () => {
-    writeJsonStorage(ADMIN_EVENTS_KEY, draftEvents);
+    saveEvents(draftEvents);
     setSavedEvents(draftEvents);
     window.alert('変更を適用しました');
   };

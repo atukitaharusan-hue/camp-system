@@ -1,7 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { ReservationDetail } from '@/types/reservation';
 import type { Database } from '@/types/database';
-import { dummyReservations } from '@/data/reservationDummyData';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 
@@ -11,7 +10,7 @@ type GuestReservationRow = Database['public']['Tables']['guest_reservations']['R
 function toReservationDetail(row: GuestReservationRow): ReservationDetail {
   return {
     id: row.id,
-    status: row.status,
+    status: row.status ?? 'pending',
     checkInDate: row.check_in_date,
     checkOutDate: row.check_out_date,
     guests: row.guests,
@@ -23,10 +22,10 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     userName: row.user_name,
     userEmail: row.user_email ?? '',
     siteNumber: row.site_number ?? '未定',
-    siteType: row.site_type,
+    siteType: row.site_type ?? 'standard',
     campgroundName: row.campground_name ?? '森のキャンプ場 Green Valley',
-    paymentMethod: row.payment_method,
-    paymentStatus: row.payment_status,
+    paymentMethod: row.payment_method ?? null,
+    paymentStatus: row.payment_status ?? null,
   };
 }
 
@@ -49,6 +48,5 @@ export async function fetchReservationById(
     return toReservationDetail(data);
   }
 
-  // フォールバック: ダミーデータ
-  return dummyReservations[reservationId] ?? null;
+  return null;
 }

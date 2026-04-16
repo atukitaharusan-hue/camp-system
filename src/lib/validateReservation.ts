@@ -1,11 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { dummyPlans, dummySalesRule, dummySites } from '@/data/adminDummyData';
-import {
-  ADMIN_PLANS_KEY,
-  ADMIN_RULES_KEY,
-  ADMIN_SITES_KEY,
-  readJsonStorage,
-} from '@/lib/admin/browserStorage';
+import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
 
 export type ReservationSource = 'web' | 'admin' | 'import' | 'admin_update';
 
@@ -31,16 +25,16 @@ export interface ValidationResult {
   nights: number;
 }
 
-function getRuntimePlans() {
-  return readJsonStorage(ADMIN_PLANS_KEY, dummyPlans);
+async function getRuntimePlans() {
+  return fetchPlans();
 }
 
-function getRuntimeSites() {
-  return readJsonStorage(ADMIN_SITES_KEY, dummySites);
+async function getRuntimeSites() {
+  return fetchSites();
 }
 
-function getRuntimeSalesRule() {
-  return readJsonStorage(ADMIN_RULES_KEY, dummySalesRule);
+async function getRuntimeSalesRule() {
+  return fetchSalesRule();
 }
 
 function toDate(dateStr: string): Date {
@@ -164,9 +158,11 @@ async function checkOverlap(
 
 export async function validateReservation(input: ReservationValidationInput): Promise<ValidationResult> {
   const errors: ValidationError[] = [];
-  const runtimeSites = getRuntimeSites();
-  const runtimePlans = getRuntimePlans();
-  const runtimeSalesRule = getRuntimeSalesRule();
+  const [runtimeSites, runtimePlans, runtimeSalesRule] = await Promise.all([
+    getRuntimeSites(),
+    getRuntimePlans(),
+    getRuntimeSalesRule(),
+  ]);
 
   if (!input.checkInDate || !input.checkOutDate || input.checkOutDate <= input.checkInDate) {
     return {
