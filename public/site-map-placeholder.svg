@@ -1,0 +1,18 @@
+<svg width="1200" height="700" viewBox="0 0 1200 700" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="700" fill="#F7FAFC"/>
+  <rect x="40" y="40" width="1120" height="620" rx="24" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="4"/>
+  <rect x="90" y="110" width="280" height="180" rx="20" fill="#E6FFFA" stroke="#38B2AC" stroke-width="3"/>
+  <rect x="410" y="110" width="280" height="180" rx="20" fill="#EBF8FF" stroke="#4299E1" stroke-width="3"/>
+  <rect x="730" y="110" width="280" height="180" rx="20" fill="#FFFBEA" stroke="#D69E2E" stroke-width="3"/>
+  <rect x="140" y="360" width="920" height="170" rx="24" fill="#F0FFF4" stroke="#48BB78" stroke-width="3" stroke-dasharray="12 10"/>
+  <text x="140" y="95" fill="#1A202C" font-family="Arial, sans-serif" font-size="36" font-weight="700">サイトマップ画像をここに差し替えてください</text>
+  <text x="145" y="160" fill="#234E52" font-family="Arial, sans-serif" font-size="28" font-weight="700">Aエリア</text>
+  <text x="145" y="200" fill="#285E61" font-family="Arial, sans-serif" font-size="20">川沿いオートサイト</text>
+  <text x="465" y="160" fill="#2A4365" font-family="Arial, sans-serif" font-size="28" font-weight="700">Bエリア</text>
+  <text x="465" y="200" fill="#2C5282" font-family="Arial, sans-serif" font-size="20">林間ファミリーサイト</text>
+  <text x="785" y="160" fill="#744210" font-family="Arial, sans-serif" font-size="28" font-weight="700">Cエリア</text>
+  <text x="785" y="200" fill="#975A16" font-family="Arial, sans-serif" font-size="20">コテージ棟</text>
+  <text x="175" y="430" fill="#276749" font-family="Arial, sans-serif" font-size="30" font-weight="700">画像ファイル名</text>
+  <text x="175" y="475" fill="#2F855A" font-family="Arial, sans-serif" font-size="22">public/site-map-placeholder.svg</text>
+  <text x="175" y="520" fill="#2F855A" font-family="Arial, sans-serif" font-size="22">後から実画像で上書きすると、そのまま反映されます。</text>
+</svg>
