@@ -99,6 +99,7 @@ export default function BookingConfirmationPage() {
   const options = useBookingDraftStore((s) => s.options);
   const policy = useBookingDraftStore((s) => s.policy);
   const payment = useBookingDraftStore((s) => s.payment);
+  const lineProfile = useBookingDraftStore((s) => s.lineProfile);
   const resetDraft = useBookingDraftStore((s) => s.reset);
 
   const router = useRouter();
@@ -124,7 +125,7 @@ export default function BookingConfirmationPage() {
     policy.agreedTerms &&
     payment.method !== null;
 
-  if (!isValid) {
+  if (!isValid && !isSubmitting) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-stone-50 to-emerald-50/30 flex items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-sm w-full text-center">
@@ -179,7 +180,13 @@ export default function BookingConfirmationPage() {
         return;
       }
 
-      const draft = { stay, site, options, policy, payment, plan, meta: { version: 1, updatedAt: 0 } };
+      if (!lineProfile.userId) {
+        setSubmitError('LINEログインが必要です。LINEアプリからアクセスしてください。');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const draft = { stay, site, options, policy, payment, plan, lineProfile, meta: { version: 1, updatedAt: 0 } };
       const qrToken = generateQrToken();
       const payload = bookingToReservation({ draft, qrToken, totalAmount });
       const result = await createReservation(payload);

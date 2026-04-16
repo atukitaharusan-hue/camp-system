@@ -54,10 +54,10 @@ export default function OptionsPage() {
 
   const booking: BookingContext = useMemo(
     () => ({
-      checkInDate: stay.checkIn ?? "2026-05-02",
-      checkOutDate: stay.checkOut ?? "2026-05-04",
-      nights: stay.nights || 2,
-      guests: stay.adults + stay.children || 4,
+      checkInDate: stay.checkIn ?? "",
+      checkOutDate: stay.checkOut ?? "",
+      nights: stay.nights || 0,
+      guests: stay.adults + stay.children || 0,
       siteId: site.siteId ?? "",
       siteNumber: site.siteNumber ?? "未選択",
       siteName: site.siteName ?? "未選択",

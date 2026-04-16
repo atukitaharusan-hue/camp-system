@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { fetchEvents, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
+import { useLiff } from '@/contexts/LiffContext';
 import type { AdminEvent } from '@/types/admin';
 import type { SiteDetail } from '@/data/sitesDummyData';
 
@@ -32,10 +33,22 @@ function siteMark(available: boolean) {
 
 export default function Home() {
   const router = useRouter();
-  const { stay, setStay } = useBookingDraftStore();
+  const { stay, setStay, setLineProfile } = useBookingDraftStore();
+  const { isReady, profile } = useLiff();
   const [activeAvailabilityType, setActiveAvailabilityType] = useState<SiteType>('auto');
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [sites, setSites] = useState<SiteDetail[]>([]);
+
+  // LIFF ログイン済みならプロフィールをストアに保存
+  useEffect(() => {
+    if (isReady && profile) {
+      setLineProfile({
+        userId: profile.userId,
+        displayName: profile.displayName,
+        pictureUrl: profile.pictureUrl ?? null,
+      });
+    }
+  }, [isReady, profile, setLineProfile]);
 
   useEffect(() => {
     fetchEvents().then(setEvents);
@@ -73,7 +86,7 @@ export default function Home() {
     setStay({ checkOut: newCheckOut, nights: stay.checkIn ? calcNights(stay.checkIn, newCheckOut) : 0 });
   }, [stay.checkIn, setStay]);
 
-  const canProceed = !!(stay.checkIn && stay.checkOut && nights > 0);
+  const canProceed = !!(stay.checkIn && stay.checkOut && nights > 0 && profile);
 
   return (
     <div className="min-h-screen bg-white">
@@ -81,6 +94,14 @@ export default function Home() {
         <header className="mb-8">
           <h1 className="text-xl font-bold text-gray-800">キャンプ場予約</h1>
           <p className="mt-2 text-sm text-gray-500">空き状況を確認してから宿泊日とプランを選べます。</p>
+          {profile && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2">
+              {profile.pictureUrl && (
+                <img src={profile.pictureUrl} alt="" className="h-8 w-8 rounded-full" />
+              )}
+              <span className="text-sm font-medium text-green-800">{profile.displayName} でログイン中</span>
+            </div>
+          )}
         </header>
 
         <section className="mb-6">
@@ -160,6 +181,9 @@ export default function Home() {
         </section>
 
         <section className="mb-8">
+          {isReady && !profile && (
+            <p className="mb-2 text-center text-sm text-amber-600">予約にはLINEログインが必要です。LINEアプリからアクセスしてください。</p>
+          )}
           <button type="button" disabled={!canProceed} onClick={() => { setStay({ nights }); router.push('/booking/plans'); }} className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400">
             プラン選択へ
           </button>

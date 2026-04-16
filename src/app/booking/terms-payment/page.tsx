@@ -189,7 +189,7 @@ export default function TermsPaymentPage() {
                   </thead>
                   <tbody>
                     {policySettings.cancellationPolicies.map((item, index) => (
-                      <tr key={`${item.period}-${index}`} className="border-t border-gray-100">
+                      <tr key={`${item.period}-${index}`} className="border-t border-gray-100 text-gray-600">
                         <td className="px-3 py-2">{item.period}</td>
                         <td className="px-3 py-2 text-right">{item.rate}</td>
                       </tr>
@@ -239,20 +239,25 @@ export default function TermsPaymentPage() {
           <div className="space-y-3">
             {paymentMethods.map((method) => {
               const isSelected = selectedPayment === method.id;
+              const isPreparing = method.id === 'credit_card';
               return (
                 <button
                   key={method.id}
                   type="button"
+                  disabled={isPreparing}
                   onClick={() => setSelectedPayment(method.id)}
                   className={`flex w-full items-center gap-4 rounded-xl border-2 p-4 text-left transition-all ${
-                    isSelected
-                      ? 'border-emerald-500 bg-emerald-50/60 shadow-sm'
-                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                    isPreparing
+                      ? 'cursor-not-allowed border-gray-200 bg-gray-50 opacity-60'
+                      : isSelected
+                        ? 'border-emerald-500 bg-emerald-50/60 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <span className={`block text-sm font-semibold ${isSelected ? 'text-emerald-800' : 'text-gray-800'}`}>
+                    <span className={`block text-sm font-semibold ${isPreparing ? 'text-gray-400' : isSelected ? 'text-emerald-800' : 'text-gray-800'}`}>
                       {method.label}
+                      {isPreparing && <span className="ml-2 text-xs font-normal text-amber-600">現在準備中です。</span>}
                     </span>
                     <span className="mt-0.5 block text-xs text-gray-500">{method.description}</span>
                   </div>

@@ -5,19 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
-import { planTypeDefaults, siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
+import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
 import type { AdminSiteMapSettings } from '@/types/admin';
 import type { SiteDetail } from '@/data/sitesDummyData';
-
-const planLabels: Record<string, string> = {
-  'off-season-auto': 'オートサイトプラン',
-  'off-season-cottage': 'コテージプラン',
-  'family-oyako': '親子ファミリープラン',
-  'family-cottage': 'ファミリーコテージプラン',
-  'standard-auto-a': 'スタンダードオートプラン',
-  'standard-cottage-b': 'スタンダードコテージプラン',
-  'standard-free': 'フリーサイトプラン',
-};
 
 export default function SitesPage() {
   const router = useRouter();
@@ -55,7 +45,20 @@ export default function SitesPage() {
     [plan.minorPlanId, sites],
   );
 
-  const preferredType = plan.minorPlanId ? planTypeDefaults[plan.minorPlanId] : undefined;
+  /** 互換サイトの最頻タイプをデフォルトフィルターとして使う */
+  const preferredType = useMemo(() => {
+    if (compatibleSites.length === 0) return undefined;
+    const counts = new Map<SiteType, number>();
+    for (const s of compatibleSites) {
+      counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
+    }
+    let best: SiteType | undefined;
+    let max = 0;
+    for (const [t, c] of counts) {
+      if (c > max) { max = c; best = t; }
+    }
+    return best;
+  }, [compatibleSites]);
   const autoAreaNames = useMemo(
     () => Array.from(new Set(compatibleSites.map((site) => site.areaName))).filter(Boolean),
     [compatibleSites],
@@ -159,7 +162,7 @@ export default function SitesPage() {
         <div className="mb-6 grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2 xl:grid-cols-4">
           <SummaryItem label="宿泊日" value={`${stay.checkIn} 〜 ${stay.checkOut}`} />
           <SummaryItem label="宿泊数" value={`${stay.nights}泊`} />
-          <SummaryItem label="選択中のプラン" value={plan.minorPlanId ? planLabels[plan.minorPlanId] : '未選択'} />
+          <SummaryItem label="選択中のプラン" value={plan.planName ?? '未選択'} />
           <SummaryItem label="自動表示サイト種類" value={activeType ? siteTypeLabels[activeType] : '未設定'} />
         </div>
 
@@ -182,10 +185,19 @@ export default function SitesPage() {
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">エリア</span>
                   <select
-                    value={activeAreaName}
-                    onChange={(event) => setActiveAreaName(event.target.value)}
+                    value={isUndesignated ? '__undesignated__' : activeAreaName}
+                    onChange={(event) => {
+                      const v = event.target.value;
+                      if (v === '__undesignated__') {
+                        handleUndesignated();
+                      } else {
+                        setIsUndesignated(false);
+                        setActiveAreaName(v);
+                      }
+                    }}
                     className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
                   >
+                    <option value="__undesignated__">サイト指定しない</option>
                     {autoAreaNames.map((areaName) => (
                       <option key={areaName} value={areaName}>
                         {areaName}
@@ -197,8 +209,9 @@ export default function SitesPage() {
                   <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">サイト種類で絞り込む</span>
                   <select
                     value={activeType}
+                    disabled={isUndesignated}
                     onChange={(event) => setActiveType(event.target.value as SiteType)}
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
                   >
                     {autoTypes.map((type) => (
                       <option key={type} value={type}>
@@ -209,26 +222,13 @@ export default function SitesPage() {
                 </label>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-amber-900">サイト指定しない</p>
-                    <p className="mt-1 text-xs text-amber-800">※で当日の混雑状況に伴い自動で決定いたします。</p>
-                    <p className="mt-1 text-xs text-amber-800">この場合、追加費用は0円です。</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleUndesignated}
-                    className={`rounded-xl px-4 py-2 text-sm font-medium ${
-                      isUndesignated
-                        ? 'bg-amber-600 text-white'
-                        : 'border border-amber-300 bg-white text-amber-700'
-                    }`}
-                  >
-                    サイト指定しない
-                  </button>
+              {isUndesignated && (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-900">サイト指定なし</p>
+                  <p className="mt-1 text-xs text-amber-800">※当日の混雑状況に伴い自動で決定いたします。</p>
+                  <p className="mt-1 text-xs text-amber-800">この場合、追加費用は0円です。</p>
                 </div>
-              </div>
+              )}
             </section>
           </div>
 

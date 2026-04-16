@@ -6,37 +6,6 @@ import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { fetchPlans } from '@/lib/admin/fetchData';
 import type { AdminPlan } from '@/types/admin';
 
-const planCategories = [
-  {
-    id: 'off-season',
-    name: '6月〜9月の閑散期プラン',
-    description: '静かにゆったり過ごしたい方向けの期間限定プランです。',
-    plans: [
-      { id: 'off-season-auto', name: '閑散期オートサイト', features: 'オートサイト / 電源あり / 最大6名', price: '¥4,500', adminIndex: 0 },
-      { id: 'off-season-cottage', name: '閑散期コテージ', features: 'コテージ / 冷暖房付き / 最大5名', price: '¥10,800', adminIndex: 2 },
-    ],
-  },
-  {
-    id: 'family',
-    name: 'ファミリー向けプラン',
-    description: '小さなお子さま連れでも使いやすいプランです。',
-    plans: [
-      { id: 'family-oyako', name: '親子向けファミリープラン', features: 'ファミリーサイト / 最大5名', price: '¥5,500', adminIndex: 1 },
-      { id: 'family-cottage', name: 'ファミリーコテージ', features: 'コテージ / 最大6名', price: '¥12,500', adminIndex: 2 },
-    ],
-  },
-  {
-    id: 'standard',
-    name: 'スタンダード宿泊プラン',
-    description: '通常利用向けの基本プランです。',
-    plans: [
-      { id: 'standard-auto-a', name: 'オートサイト', features: 'オートサイト / 最大6名', price: '¥5,000', adminIndex: 0 },
-      { id: 'standard-cottage-b', name: 'コテージB', features: 'コテージ / 最大5名', price: '¥12,000', adminIndex: 2 },
-      { id: 'standard-free', name: 'フリーサイト', features: 'ファミリーエリア / 最大4名', price: '¥2,500', adminIndex: 1 },
-    ],
-  },
-];
-
 function formatDate(iso: string) {
   return iso.replace(/-/g, '/');
 }
@@ -59,28 +28,27 @@ export default function PlansPage() {
     fetchPlans().then(setAdminPlans);
   }, []);
 
-  const decoratedCategories = useMemo(
-    () =>
-      planCategories.map((category) => ({
-        ...category,
-        plans: category.plans.map((item) => {
-          const linkedPlan = adminPlans[item.adminIndex];
-          return {
-            ...item,
-            imageUrl: linkedPlan?.imageUrl ?? '/site-map-placeholder.svg',
-            displayPrice: linkedPlan ? `¥${linkedPlan.basePrice.toLocaleString()}` : item.price,
-            isPublished: linkedPlan?.isPublished ?? true,
-          };
-        }),
-      })),
-    [adminPlans],
-  );
+  /** 公開プランをカテゴリごとにグループ化 */
+  const categories = useMemo(() => {
+    const grouped = new Map<string, AdminPlan[]>();
+    for (const p of adminPlans) {
+      if (!p.isPublished) continue;
+      const cat = p.category || '未分類';
+      const list = grouped.get(cat) ?? [];
+      list.push(p);
+      grouped.set(cat, list);
+    }
+    return Array.from(grouped.entries()).map(([name, plans]) => ({
+      name,
+      plans,
+    }));
+  }, [adminPlans]);
 
-  const handleSelectPlan = (categoryId: string, planId: string) => {
-    if (plan.majorCategoryId === categoryId && plan.minorPlanId === planId) {
-      setPlan({ majorCategoryId: null, minorPlanId: null });
+  const handleSelectPlan = (categoryName: string, p: AdminPlan) => {
+    if (plan.majorCategoryId === categoryName && plan.minorPlanId === p.id) {
+      setPlan({ majorCategoryId: null, minorPlanId: null, planName: null, categoryName: null });
     } else {
-      setPlan({ majorCategoryId: categoryId, minorPlanId: planId });
+      setPlan({ majorCategoryId: categoryName, minorPlanId: p.id, planName: p.name, categoryName });
     }
   };
 
@@ -104,33 +72,30 @@ export default function PlansPage() {
 
         <section className="mb-8">
           <div className="space-y-5">
-            {decoratedCategories.map((category) => (
-              <div key={category.id} className="overflow-hidden rounded-lg border border-gray-300">
+            {categories.map((category) => (
+              <div key={category.name} className="overflow-hidden rounded-lg border border-gray-300">
                 <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
                   <h3 className="text-sm font-bold text-gray-700">{category.name}</h3>
-                  <p className="mt-0.5 text-xs text-gray-400">{category.description}</p>
                 </div>
                 <div className="divide-y divide-gray-100">
                   {category.plans.map((item) => {
-                    const isSelected = plan.majorCategoryId === category.id && plan.minorPlanId === item.id;
+                    const isSelected = plan.majorCategoryId === category.name && plan.minorPlanId === item.id;
                     return (
                       <button
                         key={item.id}
                         type="button"
-                        disabled={!item.isPublished}
-                        onClick={() => handleSelectPlan(category.id, item.id)}
-                        className={`w-full text-left transition-colors ${isSelected ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' : 'hover:bg-gray-50'} ${!item.isPublished ? 'cursor-not-allowed bg-gray-100 opacity-60' : ''}`}
+                        onClick={() => handleSelectPlan(category.name, item)}
+                        className={`w-full text-left transition-colors ${isSelected ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' : 'hover:bg-gray-50'}`}
                       >
                         <div className="flex gap-4 px-4 py-3">
-                          <img src={item.imageUrl} alt={item.name} className="h-20 w-24 rounded-lg object-cover" />
+                          <img src={item.imageUrl || '/site-map-placeholder.svg'} alt={item.name} className="h-20 w-24 rounded-lg object-cover" />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="text-sm font-medium text-gray-700">{item.name}</p>
                               {isSelected && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">選択中</span>}
-                              {!item.isPublished && <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">非公開</span>}
                             </div>
-                            <p className="mt-1 text-xs text-gray-400">{item.features}</p>
-                            <p className="mt-3 text-sm font-semibold text-gray-700">{item.displayPrice}<span className="text-xs font-normal text-gray-400"> / 泊</span></p>
+                            {item.features && <p className="mt-1 text-xs text-gray-400">{item.features}</p>}
+                            <p className="mt-3 text-sm font-semibold text-gray-700">¥{item.basePrice.toLocaleString()}<span className="text-xs font-normal text-gray-400"> / 泊</span></p>
                           </div>
                         </div>
                       </button>

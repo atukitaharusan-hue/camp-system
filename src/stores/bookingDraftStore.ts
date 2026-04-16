@@ -14,6 +14,8 @@ export type BookingDraft = {
   plan: {
     majorCategoryId: string | null;
     minorPlanId: string | null;
+    planName: string | null;
+    categoryName: string | null;
   };
   site: {
     areaId: string | null;
@@ -47,6 +49,11 @@ export type BookingDraft = {
   payment: {
     method: string | null;
   };
+  lineProfile: {
+    userId: string | null;
+    displayName: string | null;
+    pictureUrl: string | null;
+  };
   meta: {
     version: number;
     updatedAt: number;
@@ -61,6 +68,7 @@ type BookingDraftActions = {
   setOptions: (options: Partial<BookingDraft["options"]>) => void;
   setPolicy: (policy: Partial<BookingDraft["policy"]>) => void;
   setPayment: (payment: Partial<BookingDraft["payment"]>) => void;
+  setLineProfile: (lineProfile: Partial<BookingDraft["lineProfile"]>) => void;
   reset: () => void;
 };
 
@@ -77,6 +85,8 @@ const initialDraft: BookingDraft = {
   plan: {
     majorCategoryId: null,
     minorPlanId: null,
+    planName: null,
+    categoryName: null,
   },
   site: {
     areaId: null,
@@ -100,6 +110,11 @@ const initialDraft: BookingDraft = {
   },
   payment: {
     method: null,
+  },
+  lineProfile: {
+    userId: null,
+    displayName: null,
+    pictureUrl: null,
   },
   meta: {
     version: 1,
@@ -153,6 +168,12 @@ export const useBookingDraftStore = create<BookingDraft & BookingDraftActions>()
       setPayment: (payment) =>
         set((state) => ({
           payment: { ...state.payment, ...payment },
+          meta: { ...state.meta, updatedAt: Date.now() },
+        })),
+
+      setLineProfile: (lineProfile) =>
+        set((state) => ({
+          lineProfile: { ...state.lineProfile, ...lineProfile },
           meta: { ...state.meta, updatedAt: Date.now() },
         })),
 

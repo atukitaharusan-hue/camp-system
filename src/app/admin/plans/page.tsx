@@ -9,6 +9,8 @@ const emptyPlan: AdminPlan = {
   id: '',
   name: '',
   description: '',
+  category: '',
+  features: '',
   isPublished: false,
   basePrice: 0,
   targetSiteIds: [],

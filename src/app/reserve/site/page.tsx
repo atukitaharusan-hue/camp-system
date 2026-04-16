@@ -49,17 +49,6 @@ type Area = {
   subAreas: SubArea[];
 };
 
-/* プラン名の逆引きマップ（表示用） */
-const PLAN_LABELS: Record<string, { categoryName: string; planName: string }> = {
-  "off-season-auto": { categoryName: "閑散期限定プラン", planName: "平日お得オートサイト" },
-  "off-season-cottage": { categoryName: "閑散期限定プラン", planName: "連泊ゆったりコテージ" },
-  "family-oyako": { categoryName: "ファミリー向けプラン", planName: "親子キャンプ応援プラン" },
-  "family-cottage": { categoryName: "ファミリー向けプラン", planName: "ファミリーコテージプラン" },
-  "standard-auto-a": { categoryName: "スタンダードプラン", planName: "オートサイトA" },
-  "standard-cottage-b": { categoryName: "スタンダードプラン", planName: "コテージB" },
-  "standard-free": { categoryName: "スタンダードプラン", planName: "フリーサイト" },
-};
-
 /** ISO 日付文字列 → 表示用 */
 function formatDate(iso: string): string {
   return iso.replace(/-/g, "/");
@@ -144,8 +133,8 @@ export default function SiteSelectionPage() {
 
   if (!hasPlan) return null;
 
-  const planLabel = plan.minorPlanId
-    ? PLAN_LABELS[plan.minorPlanId]
+  const planLabel = plan.planName
+    ? { categoryName: plan.categoryName ?? '', planName: plan.planName }
     : null;
 
   return (

@@ -78,8 +78,8 @@ export function bookingToReservation({
   const { reservationStatus, paymentStatus } = deriveStatuses(draft.payment.method);
 
   return {
-    user_identifier: null,
-    user_name: 'ゲスト予約',
+    user_identifier: draft.lineProfile.userId ?? null,
+    user_name: draft.lineProfile.displayName ?? 'ゲスト予約',
     user_email: null,
     check_in_date: draft.stay.checkIn!,
     check_out_date: draft.stay.checkOut!,

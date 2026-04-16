@@ -393,7 +393,7 @@ export default function AdminSitesPage() {
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
                   サイト指定しない
                   <br />
-                  ※で当日の混雑状況に伴い自動で決定いたします。
+                  ※当日の混雑状況に伴い自動で決定いたします。
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

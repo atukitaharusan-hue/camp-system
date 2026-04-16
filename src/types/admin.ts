@@ -2,6 +2,8 @@ export interface AdminPlan {
   id: string;
   name: string;
   description: string;
+  category: string;
+  features: string;
   isPublished: boolean;
   basePrice: number;
   targetSiteIds: string[];

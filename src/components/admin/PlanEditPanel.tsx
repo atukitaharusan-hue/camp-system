@@ -98,6 +98,26 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
           </Field>
+          <Field label="カテゴリ">
+            <input
+              type="text"
+              name="category"
+              value={form.category}
+              onChange={handleFieldChange}
+              placeholder="例: 閑散期限定, ファミリー向け, スタンダード"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
+            />
+          </Field>
+          <Field label="特徴テキスト">
+            <input
+              type="text"
+              name="features"
+              value={form.features}
+              onChange={handleFieldChange}
+              placeholder="例: オートサイト / 電源あり / 最大6名"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
+            />
+          </Field>
           <Field label="プラン画像">
             <div className="space-y-3">
               <input
