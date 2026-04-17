@@ -6,7 +6,7 @@
 -- ============================================================
 
 CREATE TABLE public.guest_reservations (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
 
   -- ユーザー情報（認証なし）
   user_identifier TEXT,                         -- LINE ID など将来用

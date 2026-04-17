@@ -53,7 +53,7 @@ CREATE POLICY "Allow anon delete options" ON public.options FOR DELETE USING (tr
 -- 3. plans テーブル
 -- -----------------------------------------------------------
 CREATE TABLE public.plans (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   is_published BOOLEAN DEFAULT true,
@@ -94,7 +94,7 @@ CREATE POLICY "Allow anon delete plan_sites" ON public.plan_sites FOR DELETE USI
 -- 5. events テーブル
 -- -----------------------------------------------------------
 CREATE TABLE public.events (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
   start_at TIMESTAMPTZ NOT NULL,
@@ -138,7 +138,7 @@ CREATE POLICY "Allow anon update app_settings" ON public.app_settings FOR UPDATE
 -- 7. closed_dates (個別休業日)
 -- -----------------------------------------------------------
 CREATE TABLE public.closed_dates (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   closed_date DATE NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
@@ -152,7 +152,7 @@ CREATE POLICY "Allow anon delete closed_dates" ON public.closed_dates FOR DELETE
 -- 8. closed_date_ranges (期間休業)
 -- -----------------------------------------------------------
 CREATE TABLE public.closed_date_ranges (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   reason TEXT,
@@ -169,7 +169,7 @@ CREATE POLICY "Allow anon delete closed_date_ranges" ON public.closed_date_range
 -- 9. site_closures (サイト個別の閉鎖期間)
 -- -----------------------------------------------------------
 CREATE TABLE public.site_closures (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   site_id UUID REFERENCES public.sites(id) ON DELETE CASCADE NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
@@ -187,7 +187,7 @@ CREATE POLICY "Allow anon delete site_closures" ON public.site_closures FOR DELE
 -- 10. admin_members
 -- -----------------------------------------------------------
 CREATE TABLE public.admin_members (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   role TEXT NOT NULL DEFAULT 'admin',
@@ -206,7 +206,7 @@ CREATE POLICY "Allow anon delete admin_members" ON public.admin_members FOR DELE
 -- 11. admin_invites
 -- -----------------------------------------------------------
 CREATE TABLE public.admin_invites (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   email TEXT NOT NULL,
   token TEXT UNIQUE NOT NULL,
   status TEXT DEFAULT 'pending',

@@ -1,5 +1,4 @@
 -- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create custom types
 CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'checked_in', 'completed', 'cancelled');
@@ -21,7 +20,7 @@ CREATE TABLE public.profiles (
 
 -- Create campgrounds table
 CREATE TABLE public.campgrounds (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   address TEXT,
@@ -37,7 +36,7 @@ CREATE TABLE public.campgrounds (
 
 -- Create sites table
 CREATE TABLE public.sites (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   campground_id UUID REFERENCES public.campgrounds(id) ON DELETE CASCADE NOT NULL,
   site_number TEXT NOT NULL,
   type site_type DEFAULT 'standard',
@@ -59,7 +58,7 @@ CREATE TABLE public.sites (
 
 -- Create options table (additional services)
 CREATE TABLE public.options (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   price DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -70,7 +69,7 @@ CREATE TABLE public.options (
 
 -- Create reservations table
 CREATE TABLE public.reservations (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   site_id UUID REFERENCES public.sites(id) ON DELETE CASCADE NOT NULL,
   check_in_date DATE NOT NULL,
@@ -88,7 +87,7 @@ CREATE TABLE public.reservations (
 
 -- Create reservation_options junction table
 CREATE TABLE public.reservation_options (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   reservation_id UUID REFERENCES public.reservations(id) ON DELETE CASCADE NOT NULL,
   option_id UUID REFERENCES public.options(id) ON DELETE CASCADE NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
@@ -99,7 +98,7 @@ CREATE TABLE public.reservation_options (
 
 -- Create payments table
 CREATE TABLE public.payments (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   reservation_id UUID REFERENCES public.reservations(id) ON DELETE CASCADE NOT NULL,
   amount DECIMAL(10,2) NOT NULL,
   currency TEXT DEFAULT 'JPY',
@@ -114,7 +113,7 @@ CREATE TABLE public.payments (
 
 -- Create check_ins table
 CREATE TABLE public.check_ins (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   reservation_id UUID REFERENCES public.reservations(id) ON DELETE CASCADE NOT NULL,
   checked_in_by UUID REFERENCES public.profiles(id),
   check_in_time TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
@@ -125,7 +124,7 @@ CREATE TABLE public.check_ins (
 
 -- Create notifications table
 CREATE TABLE public.notifications (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   reservation_id UUID REFERENCES public.reservations(id) ON DELETE CASCADE,
   type TEXT NOT NULL, -- 'booking_confirmed', 'reminder', 'check_in_ready'

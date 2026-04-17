@@ -5,7 +5,7 @@
 
 -- import_jobs: 取込ジョブ1回分
 CREATE TABLE public.import_jobs (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   executed_by TEXT NOT NULL DEFAULT '',
   file_name TEXT NOT NULL DEFAULT '',
   total_rows INTEGER NOT NULL DEFAULT 0,
@@ -16,7 +16,7 @@ CREATE TABLE public.import_jobs (
 
 -- import_job_rows: 各行の処理結果
 CREATE TABLE public.import_job_rows (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   import_job_id UUID NOT NULL REFERENCES public.import_jobs(id) ON DELETE CASCADE,
   row_number INTEGER NOT NULL,
   raw_data_json JSONB NOT NULL DEFAULT '{}'::jsonb,

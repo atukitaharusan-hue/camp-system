@@ -4,7 +4,7 @@
 
 -- notification_logs: 通知記録
 CREATE TABLE public.notification_logs (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   reservation_id UUID,
   notification_type TEXT NOT NULL,
   channel TEXT NOT NULL DEFAULT 'internal',
@@ -21,7 +21,7 @@ CREATE INDEX idx_notification_logs_created ON public.notification_logs(created_a
 
 -- admin_action_logs: 管理者操作ログ
 CREATE TABLE public.admin_action_logs (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   admin_email TEXT NOT NULL DEFAULT '',
   action_type TEXT NOT NULL,
   target_type TEXT NOT NULL,
