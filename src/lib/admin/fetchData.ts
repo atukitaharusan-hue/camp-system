@@ -109,29 +109,36 @@ export async function fetchPlans(): Promise<AdminPlan[]> {
 
 export async function savePlans(plans: AdminPlan[]): Promise<void> {
   for (const plan of plans) {
-    const { error } = await supabase.from('plans').upsert({
-      id: plan.id || undefined,
+    const isNew = !plan.id || !plan.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    const row: Record<string, unknown> = {
       name: plan.name,
       description: plan.description,
-      category: plan.category,
-      features: plan.features,
       is_published: plan.isPublished,
       base_price: plan.basePrice,
       capacity: plan.capacity,
       sales_start_date: plan.salesStartDate,
       sales_end_date: plan.salesEndDate,
       image_url: plan.imageUrl,
-    });
-    if (error) throw error;
+    };
+
+    let planId = plan.id;
+
+    if (isNew) {
+      const { data, error } = await supabase.from('plans').insert(row).select('id').single();
+      if (error) throw error;
+      planId = data.id;
+    } else {
+      row.id = plan.id;
+      const { error } = await supabase.from('plans').upsert(row);
+      if (error) throw error;
+    }
 
     // plan_sites 再構築
-    if (plan.id) {
-      await supabase.from('plan_sites').delete().eq('plan_id', plan.id);
-      if (plan.targetSiteIds.length > 0) {
-        await supabase.from('plan_sites').insert(
-          plan.targetSiteIds.map((siteId) => ({ plan_id: plan.id, site_id: siteId })),
-        );
-      }
+    await supabase.from('plan_sites').delete().eq('plan_id', planId);
+    if (plan.targetSiteIds.length > 0) {
+      await supabase.from('plan_sites').insert(
+        plan.targetSiteIds.map((siteId) => ({ plan_id: planId, site_id: siteId })),
+      );
     }
   }
 }

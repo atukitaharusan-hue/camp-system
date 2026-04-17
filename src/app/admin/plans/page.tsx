@@ -38,10 +38,10 @@ export default function AdminPlansPage() {
 
   const updateDraftPlan = (plan: AdminPlan) => {
     setDraftPlans((prev) => {
-      if (!plan.id) {
-        return [...prev, { ...plan, id: `plan-${Date.now()}` }];
+      const exists = prev.some((item) => item.id === plan.id);
+      if (!exists) {
+        return [...prev, { ...plan, id: plan.id || `plan-${Date.now()}` }];
       }
-
       return prev.map((item) => (item.id === plan.id ? plan : item));
     });
     setEditingPlan(null);
@@ -51,10 +51,17 @@ export default function AdminPlansPage() {
     setDraftPlans((prev) => prev.filter((item) => item.id !== planId));
   };
 
-  const handleSave = () => {
-    savePlans(draftPlans);
-    setSavedPlans(draftPlans);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await savePlans(draftPlans);
+      const refreshed = await fetchPlans();
+      setSavedPlans(refreshed);
+      setDraftPlans(refreshed);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('savePlans error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

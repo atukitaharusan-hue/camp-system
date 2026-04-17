@@ -80,20 +80,22 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
-          <Field label="プラン名">
+          <Field label="プラン名" required>
             <input
               type="text"
               name="name"
               value={form.name}
               onChange={handleFieldChange}
+              required
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
           </Field>
-          <Field label="説明文">
+          <Field label="説明文" required>
             <textarea
               name="description"
               value={form.description}
               onChange={handleFieldChange}
+              required
               rows={4}
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
@@ -140,23 +142,25 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="基本料金">
+            <Field label="基本料金" required>
               <input
                 type="number"
                 min={0}
                 name="basePrice"
                 value={form.basePrice}
                 onChange={handleFieldChange}
+                required
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
-            <Field label="定員">
+            <Field label="定員" required>
               <input
                 type="number"
                 min={1}
                 name="capacity"
                 value={form.capacity}
                 onChange={handleFieldChange}
+                required
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
@@ -233,10 +237,12 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>
+      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+        {label}{required && <span className="ml-0.5 text-red-500">*</span>}
+      </label>
       {children}
     </div>
   );
