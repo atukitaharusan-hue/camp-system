@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReservationDetail } from '@/types/reservation';
 import {
   calculateNights,
@@ -6,6 +8,8 @@ import {
   getPaymentStatusLabel,
 } from '@/types/reservation';
 import ReservationStatusBadge from './ReservationStatusBadge';
+import { useEffect, useState } from 'react';
+import { fetchOptions } from '@/lib/admin/fetchData';
 
 interface ReservationSummaryCardProps {
   reservation: ReservationDetail;
@@ -25,6 +29,15 @@ function formatDate(dateStr: string): string {
 export default function ReservationSummaryCard({
   reservation,
 }: ReservationSummaryCardProps) {
+  const [optionNames, setOptionNames] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!reservation.optionsJson?.length) return;
+    fetchOptions().then((opts) => {
+      setOptionNames(new Map(opts.map((o) => [o.id, o.name])));
+    });
+  }, [reservation.optionsJson]);
+
   const nights = calculateNights(
     reservation.checkInDate,
     reservation.checkOutDate
@@ -88,6 +101,26 @@ export default function ReservationSummaryCard({
       <div className="border-t border-gray-100 px-5 py-3">
         <p className="text-xs text-gray-400">{reservation.campgroundName}</p>
       </div>
+
+      {/* オプション */}
+      {reservation.optionsJson && reservation.optionsJson.length > 0 && (
+        <div className="border-t border-gray-100 px-5 py-4">
+          <h3 className="mb-2 text-xs font-semibold text-gray-500">選択オプション</h3>
+          <div className="space-y-1.5">
+            {reservation.optionsJson.map((opt) => (
+              <div key={opt.optionId} className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">
+                  {optionNames.get(opt.optionId) ?? opt.optionId}
+                  {opt.type === 'rental' && opt.quantity > 1 && ` ×${opt.quantity}`}
+                  {opt.type === 'rental' && opt.days && opt.days > 1 && ` (${opt.days}日間)`}
+                  {opt.type === 'event' && opt.people && opt.people > 1 && ` ×${opt.people}名`}
+                </span>
+                <span className="font-medium text-gray-800">¥{opt.subtotal.toLocaleString('ja-JP')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

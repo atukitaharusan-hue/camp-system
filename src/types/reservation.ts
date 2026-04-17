@@ -36,6 +36,16 @@ export interface ReservationDetail {
   // 決済情報
   paymentMethod: PaymentMethod | null;
   paymentStatus: PaymentStatus | null;
+
+  // オプション
+  optionsJson: Array<{
+    type: 'rental' | 'event';
+    optionId: string;
+    quantity: number;
+    days?: number;
+    people?: number;
+    subtotal: number;
+  }> | null;
 }
 
 /** 受付コード生成用ヘルパー（reservation_idの先頭8文字を大文字化） */

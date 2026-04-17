@@ -26,6 +26,7 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     campgroundName: row.campground_name ?? '森のキャンプ場 Green Valley',
     paymentMethod: row.payment_method ?? null,
     paymentStatus: row.payment_status ?? null,
+    optionsJson: Array.isArray(row.options_json) ? row.options_json as ReservationDetail['optionsJson'] : null,
   };
 }
 

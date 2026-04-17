@@ -174,7 +174,7 @@ export default function OptionsPage() {
       .map((s) => ({ optionId: s.optionId, people: s.people, subtotal: s.subtotal }));
     setOptions({ rentals, events });
 
-    router.push("/booking/terms-payment");
+    router.push("/booking/user-info");
   };
 
   return (

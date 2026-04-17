@@ -15,7 +15,7 @@ import type {
 } from '@/types/admin';
 import type { OptionItem } from '@/types/options';
 import type { ReservationDetail } from '@/types/reservation';
-import type { SiteDetail } from '@/data/sitesDummyData';
+import type { SiteDetail } from '@/types/site';
 
 // ============================================================
 // Sites
@@ -483,6 +483,7 @@ export async function fetchReservationById(id: string): Promise<ReservationDetai
     campgroundName: r.campground_name ?? '',
     paymentMethod: r.payment_method,
     paymentStatus: r.payment_status,
+    optionsJson: Array.isArray(r.options_json) ? r.options_json : null,
   };
 }
 

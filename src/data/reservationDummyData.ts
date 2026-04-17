@@ -24,6 +24,7 @@ export const dummyReservations: Record<string, ReservationDetail> = {
     campgroundName: '森のキャンプ場 Green Valley',
     paymentMethod: 'credit_card',
     paymentStatus: 'paid',
+    optionsJson: null,
   },
 
   // チェックイン済み予約
@@ -45,6 +46,7 @@ export const dummyReservations: Record<string, ReservationDetail> = {
     campgroundName: '森のキャンプ場 Green Valley',
     paymentMethod: 'credit_card',
     paymentStatus: 'paid',
+    optionsJson: null,
   },
 
   // キャンセル済み予約
@@ -66,6 +68,7 @@ export const dummyReservations: Record<string, ReservationDetail> = {
     campgroundName: '森のキャンプ場 Green Valley',
     paymentMethod: 'bank_transfer',
     paymentStatus: 'refunded',
+    optionsJson: null,
   },
 
   // 決済待ち予約
@@ -87,6 +90,7 @@ export const dummyReservations: Record<string, ReservationDetail> = {
     campgroundName: '森のキャンプ場 Green Valley',
     paymentMethod: null,
     paymentStatus: 'pending',
+    optionsJson: null,
   },
 
   // 利用完了済み予約
@@ -108,6 +112,7 @@ export const dummyReservations: Record<string, ReservationDetail> = {
     campgroundName: '森のキャンプ場 Green Valley',
     paymentMethod: 'credit_card',
     paymentStatus: 'paid',
+    optionsJson: null,
   },
 };
 

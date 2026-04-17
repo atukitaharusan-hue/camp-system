@@ -49,6 +49,14 @@ export type BookingDraft = {
   payment: {
     method: string | null;
   };
+  userInfo: {
+    gender: string | null;
+    occupation: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    referralSource: string | null;
+  };
   lineProfile: {
     userId: string | null;
     displayName: string | null;
@@ -68,6 +76,7 @@ type BookingDraftActions = {
   setOptions: (options: Partial<BookingDraft["options"]>) => void;
   setPolicy: (policy: Partial<BookingDraft["policy"]>) => void;
   setPayment: (payment: Partial<BookingDraft["payment"]>) => void;
+  setUserInfo: (userInfo: Partial<BookingDraft["userInfo"]>) => void;
   setLineProfile: (lineProfile: Partial<BookingDraft["lineProfile"]>) => void;
   reset: () => void;
 };
@@ -110,6 +119,14 @@ const initialDraft: BookingDraft = {
   },
   payment: {
     method: null,
+  },
+  userInfo: {
+    gender: null,
+    occupation: null,
+    phone: null,
+    email: null,
+    address: null,
+    referralSource: null,
   },
   lineProfile: {
     userId: null,
@@ -168,6 +185,12 @@ export const useBookingDraftStore = create<BookingDraft & BookingDraftActions>()
       setPayment: (payment) =>
         set((state) => ({
           payment: { ...state.payment, ...payment },
+          meta: { ...state.meta, updatedAt: Date.now() },
+        })),
+
+      setUserInfo: (userInfo) =>
+        set((state) => ({
+          userInfo: { ...state.userInfo, ...userInfo },
           meta: { ...state.meta, updatedAt: Date.now() },
         })),
 

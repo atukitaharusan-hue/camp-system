@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchEvents, fetchSiteDetails } from '@/lib/admin/fetchData';
-import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
+import { siteTypeLabels, type SiteType } from '@/types/site';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { useLiff } from '@/contexts/LiffContext';
 import type { AdminEvent } from '@/types/admin';
-import type { SiteDetail } from '@/data/sitesDummyData';
+import type { SiteDetail } from '@/types/site';
 
 function formatDate(iso: string) {
   return iso.replace(/-/g, '/');
@@ -154,6 +154,45 @@ export default function Home() {
           </div>
           <div className="rounded bg-gray-50 px-3 py-2 text-center text-sm text-gray-600">
             {nights > 0 ? <span className="font-medium">{stay.checkIn && formatDate(stay.checkIn)} - {stay.checkOut && formatDate(stay.checkOut)} / {nights}泊</span> : <span className="text-gray-400">宿泊日を選択してください</span>}
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-lg border border-gray-300 p-4">
+          <h2 className="mb-3 text-base font-semibold text-gray-700">利用人数</h2>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700">大人</p>
+                <p className="text-xs text-gray-400">中学生以上</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setStay({ adults: Math.max(1, stay.adults - 1) })} disabled={stay.adults <= 1} className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300">
+                  −
+                </button>
+                <span className="w-6 text-center text-sm font-semibold text-gray-800">{stay.adults}</span>
+                <button type="button" onClick={() => setStay({ adults: Math.min(20, stay.adults + 1) })} className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition-colors hover:bg-gray-100">
+                  ＋
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700">子ども</p>
+                <p className="text-xs text-gray-400">小学生以下</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setStay({ children: Math.max(0, stay.children - 1) })} disabled={stay.children <= 0} className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300">
+                  −
+                </button>
+                <span className="w-6 text-center text-sm font-semibold text-gray-800">{stay.children}</span>
+                <button type="button" onClick={() => setStay({ children: Math.min(20, stay.children + 1) })} className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition-colors hover:bg-gray-100">
+                  ＋
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 rounded bg-gray-50 px-3 py-2 text-center text-sm text-gray-600">
+            合計 <span className="font-semibold text-gray-800">{stay.adults + stay.children}名</span>（大人{stay.adults}名{stay.children > 0 ? ` / 子ども${stay.children}名` : ''}）
           </div>
         </section>
 

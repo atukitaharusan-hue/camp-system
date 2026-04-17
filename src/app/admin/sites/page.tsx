@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { fetchPlans, fetchSites, saveSites, fetchSiteMapSettings, saveSiteMapSettings, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { getSiteStatusLabel, type AdminPlan, type AdminSite, type AdminSiteMapSettings } from '@/types/admin';
-import { siteTypeLabels, type SiteType, type SiteDetail } from '@/data/sitesDummyData';
+import { siteTypeLabels, type SiteType, type SiteDetail } from '@/types/site';
 import SiteEditPanel from '@/components/admin/SiteEditPanel';
 
 const emptySite: AdminSite = {

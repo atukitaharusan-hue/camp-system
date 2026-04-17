@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
-import { siteTypeLabels, type SiteType } from '@/data/sitesDummyData';
+import { siteTypeLabels, type SiteType } from '@/types/site';
 import type { AdminSiteMapSettings } from '@/types/admin';
-import type { SiteDetail } from '@/data/sitesDummyData';
+import type { SiteDetail } from '@/types/site';
 
 export default function SitesPage() {
   const router = useRouter();

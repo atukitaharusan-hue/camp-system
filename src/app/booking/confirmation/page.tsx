@@ -99,6 +99,7 @@ export default function BookingConfirmationPage() {
   const options = useBookingDraftStore((s) => s.options);
   const policy = useBookingDraftStore((s) => s.policy);
   const payment = useBookingDraftStore((s) => s.payment);
+  const userInfo = useBookingDraftStore((s) => s.userInfo);
   const lineProfile = useBookingDraftStore((s) => s.lineProfile);
   const resetDraft = useBookingDraftStore((s) => s.reset);
 
@@ -186,7 +187,7 @@ export default function BookingConfirmationPage() {
         return;
       }
 
-      const draft = { stay, site, options, policy, payment, plan, lineProfile, meta: { version: 1, updatedAt: 0 } };
+      const draft = { stay, site, options, policy, payment, userInfo, plan, lineProfile, meta: { version: 1, updatedAt: 0 } };
       const qrToken = generateQrToken();
       const payload = bookingToReservation({ draft, qrToken, totalAmount });
       const result = await createReservation(payload);

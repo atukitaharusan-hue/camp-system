@@ -343,9 +343,13 @@ export type Database = {
           total_amount: number
           updated_at: string
           user_email: string | null
+          user_gender: string | null
           user_identifier: string | null
           user_name: string
+          user_occupation: string | null
           user_phone: string | null
+          user_address: string | null
+          user_referral_source: string | null
         }
         Insert: {
           adults?: number
@@ -376,9 +380,13 @@ export type Database = {
           total_amount?: number
           updated_at?: string
           user_email?: string | null
+          user_gender?: string | null
           user_identifier?: string | null
           user_name?: string
+          user_occupation?: string | null
           user_phone?: string | null
+          user_address?: string | null
+          user_referral_source?: string | null
         }
         Update: {
           adults?: number
@@ -409,9 +417,13 @@ export type Database = {
           total_amount?: number
           updated_at?: string
           user_email?: string | null
+          user_gender?: string | null
           user_identifier?: string | null
           user_name?: string
+          user_occupation?: string | null
           user_phone?: string | null
+          user_address?: string | null
+          user_referral_source?: string | null
         }
         Relationships: []
       }

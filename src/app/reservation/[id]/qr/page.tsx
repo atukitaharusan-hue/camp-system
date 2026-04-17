@@ -103,9 +103,9 @@ export default function ReservationQrPage() {
         <ReservationSummaryCard reservation={reservation} />
 
         <div className="space-y-3 pb-8">
-          <button onClick={() => router.push(`/reservation/${reservation.id}`)} className="w-full rounded-lg bg-gray-800 px-6 py-3.5 text-sm font-medium text-white transition-colors hover:bg-gray-700">
+          {/* <button onClick={() => router.push(`/reservation/${reservation.id}`)} className="w-full rounded-lg bg-gray-800 px-6 py-3.5 text-sm font-medium text-white transition-colors hover:bg-gray-700">
             予約詳細を確認する
-          </button>
+          </button> */}
           <button onClick={() => router.push('/')} className="w-full rounded-lg border border-gray-300 bg-white px-6 py-3.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
             TOPへ戻る
           </button>

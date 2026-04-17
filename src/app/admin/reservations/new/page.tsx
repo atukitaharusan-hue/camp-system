@@ -12,7 +12,7 @@ import {
 } from '@/lib/admin/createAdminReservation';
 import type { Database } from '@/types/database';
 import type { AdminPlan } from '@/types/admin';
-import type { SiteDetail } from '@/data/sitesDummyData';
+import type { SiteDetail } from '@/types/site';
 
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];

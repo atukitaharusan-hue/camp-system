@@ -129,8 +129,8 @@ export default function TermsPaymentPage() {
     <div className="min-h-screen bg-gradient-to-b from-stone-50 to-emerald-50/30 py-8 pb-28">
       <div className="mx-auto max-w-2xl px-4">
         <div className="mb-10 text-center">
-          <Link href="/booking/options" className="text-sm text-emerald-700 hover:text-emerald-800">
-            オプション選択へ戻る
+          <Link href="/booking/user-info" className="text-sm text-emerald-700 hover:text-emerald-800">
+            ← お客様情報入力に戻る
           </Link>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-gray-900">規約とお支払い方法</h1>
           <p className="mt-2 text-sm text-gray-500">
@@ -287,7 +287,7 @@ export default function TermsPaymentPage() {
       <div className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur-sm">
         <div className="mx-auto flex max-w-2xl gap-3">
           <Link
-            href="/booking/options"
+            href="/booking/user-info"
             className="flex-1 rounded-xl border border-gray-300 py-3 text-center text-sm font-semibold text-gray-600 hover:bg-gray-50"
           >
             戻る
