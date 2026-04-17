@@ -1,23 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac, timingSafeEqual } from "crypto";
-
-const COOKIE_NAME = "admin_session";
-const COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours
-
-function getAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD ?? "";
-}
-
-function makeSessionToken(password: string): string {
-  const secret = process.env.ADMIN_PASSWORD ?? "fallback";
-  return createHmac("sha256", secret).update(password).digest("hex");
-}
-
-export function verifySessionToken(token: string): boolean {
-  const expected = makeSessionToken(getAdminPassword());
-  if (token.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-}
+import { COOKIE_NAME, COOKIE_MAX_AGE, makeSessionToken, verifySessionToken } from "@/lib/admin/session";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -27,18 +9,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "パスワードを入力してください" }, { status: 400 });
   }
 
-  const adminPassword = getAdminPassword();
+  const adminPassword = process.env.ADMIN_PASSWORD ?? "";
   if (!adminPassword) {
     return NextResponse.json({ error: "管理者パスワードが設定されていません" }, { status: 500 });
   }
 
-  const passwordBuffer = Buffer.from(password);
-  const expectedBuffer = Buffer.from(adminPassword);
-  if (passwordBuffer.length !== expectedBuffer.length || !timingSafeEqual(passwordBuffer, expectedBuffer)) {
+  // constant-time comparison
+  if (password.length !== adminPassword.length) {
+    return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
+  }
+  let diff = 0;
+  for (let i = 0; i < password.length; i++) {
+    diff |= password.charCodeAt(i) ^ adminPassword.charCodeAt(i);
+  }
+  if (diff !== 0) {
     return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
   }
 
-  const token = makeSessionToken(password);
+  const token = await makeSessionToken(password);
   const response = NextResponse.json({ ok: true });
   response.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,

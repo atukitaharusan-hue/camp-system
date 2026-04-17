@@ -1,7 +1,5 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdminEmail } from '@/lib/admin/auth';
-import { verifySessionToken } from '@/app/api/admin-auth/route';
+import { verifySessionToken } from '@/lib/admin/session';
 
 const ADMIN_SESSION_COOKIE = 'admin_session';
 
@@ -17,7 +15,7 @@ export async function middleware(request: NextRequest) {
     // 既に認証済みなら /admin へリダイレクト
     if (isPasswordAuthEnabled()) {
       const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
-      if (token && verifySessionToken(token)) {
+      if (token && await verifySessionToken(token)) {
         const url = request.nextUrl.clone();
         url.pathname = '/admin';
         return NextResponse.redirect(url);
@@ -41,7 +39,7 @@ async function protectAdmin(request: NextRequest) {
   // パスワード認証モード
   if (isPasswordAuthEnabled()) {
     const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
-    if (!token || !verifySessionToken(token)) {
+    if (!token || !await verifySessionToken(token)) {
       const url = request.nextUrl.clone();
       url.pathname = '/admin/login';
       return NextResponse.redirect(url);
