@@ -1,9 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminEmail } from '@/lib/admin/auth';
+import { verifySessionToken } from '@/app/api/admin-auth/route';
 
-function isAdminAuthDisabled() {
-  return true;
+const ADMIN_SESSION_COOKIE = 'admin_session';
+
+function isPasswordAuthEnabled() {
+  return !!process.env.ADMIN_PASSWORD;
 }
 
 export async function middleware(request: NextRequest) {
@@ -11,7 +14,16 @@ export async function middleware(request: NextRequest) {
 
   // /admin/login は認証不要
   if (pathname === '/admin/login') {
-    return await handleLoginPage(request);
+    // 既に認証済みなら /admin へリダイレクト
+    if (isPasswordAuthEnabled()) {
+      const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+      if (token && verifySessionToken(token)) {
+        const url = request.nextUrl.clone();
+        url.pathname = '/admin';
+        return NextResponse.redirect(url);
+      }
+    }
+    return NextResponse.next();
   }
 
   // /admin 配下のみ保護
@@ -23,91 +35,22 @@ export async function middleware(request: NextRequest) {
 }
 
 /**
- * ログインページ: 既にログイン済み管理者なら /admin へリダイレクト
- */
-async function handleLoginPage(request: NextRequest) {
-  if (isAdminAuthDisabled()) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/admin';
-    return NextResponse.redirect(url);
-  }
-
-  const { supabase, response } = createMiddlewareClient(request);
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user && isAdminEmail(user.email)) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/admin';
-    return NextResponse.redirect(url, { headers: response.headers });
-  }
-
-  return response;
-}
-
-/**
  * /admin 配下を保護
  */
 async function protectAdmin(request: NextRequest) {
-  if (isAdminAuthDisabled()) {
+  // パスワード認証モード
+  if (isPasswordAuthEnabled()) {
+    const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+    if (!token || !verifySessionToken(token)) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/admin/login';
+      return NextResponse.redirect(url);
+    }
     return NextResponse.next();
   }
 
-  const { supabase, response } = createMiddlewareClient(request);
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // 未ログイン → /admin/login
-  if (!user) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/admin/login';
-    url.searchParams.set('next', request.nextUrl.pathname);
-    return NextResponse.redirect(url, { headers: response.headers });
-  }
-
-  // ログイン済みだが管理者でない → /admin/login?error=forbidden
-  if (!isAdminEmail(user.email)) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/admin/login';
-    url.searchParams.set('error', 'forbidden');
-    return NextResponse.redirect(url, { headers: response.headers });
-  }
-
-  return response;
-}
-
-/**
- * middleware 用の Supabase クライアント生成
- */
-function createMiddlewareClient(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
-
-  return { supabase, response };
+  // ADMIN_PASSWORD 未設定の場合はフリーアクセス（開発用）
+  return NextResponse.next();
 }
 
 export const config = {
