@@ -110,7 +110,7 @@ export async function fetchPlans(): Promise<AdminPlan[]> {
 export async function savePlans(plans: AdminPlan[]): Promise<void> {
   for (const plan of plans) {
     const isNew = !plan.id || !plan.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-    const row: Record<string, unknown> = {
+    const row = {
       name: plan.name,
       description: plan.description,
       is_published: plan.isPublished,
@@ -128,8 +128,7 @@ export async function savePlans(plans: AdminPlan[]): Promise<void> {
       if (error) throw error;
       planId = data.id;
     } else {
-      row.id = plan.id;
-      const { error } = await supabase.from('plans').upsert(row);
+      const { error } = await supabase.from('plans').upsert({ ...row, id: plan.id });
       if (error) throw error;
     }
 
