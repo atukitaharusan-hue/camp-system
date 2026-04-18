@@ -140,16 +140,16 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="mb-6 rounded-lg border border-gray-300 p-4">
+        <section className="mb-6 overflow-hidden rounded-lg border border-gray-300 p-4">
           <h2 className="mb-3 text-base font-semibold text-gray-700">宿泊日を選択</h2>
           <div className="mb-3 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
-            <div>
+            <div className="min-w-0">
               <label htmlFor="checkIn" className="mb-1 block text-xs text-gray-500">チェックイン</label>
-              <input id="checkIn" type="date" min={today} value={stay.checkIn ?? ''} onChange={handleCheckInChange} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-700" />
+              <input id="checkIn" type="date" min={today} value={stay.checkIn ?? ''} onChange={handleCheckInChange} className="w-full min-w-0 rounded border border-gray-300 bg-white px-2 py-2 text-base text-gray-700" />
             </div>
-            <div>
+            <div className="min-w-0">
               <label htmlFor="checkOut" className="mb-1 block text-xs text-gray-500">チェックアウト</label>
-              <input id="checkOut" type="date" min={stay.checkIn || today} value={stay.checkOut ?? ''} onChange={handleCheckOutChange} disabled={!stay.checkIn} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-700 disabled:bg-gray-100 disabled:text-gray-400" />
+              <input id="checkOut" type="date" min={stay.checkIn || today} value={stay.checkOut ?? ''} onChange={handleCheckOutChange} disabled={!stay.checkIn} className="w-full min-w-0 rounded border border-gray-300 bg-white px-2 py-2 text-base text-gray-700 disabled:bg-gray-100 disabled:text-gray-400" />
             </div>
           </div>
           <div className="rounded bg-gray-50 px-3 py-2 text-center text-sm text-gray-600">
