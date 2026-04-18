@@ -47,10 +47,10 @@ export default function AdminEventsPage() {
 
   const applyEventDraft = (event: AdminEvent) => {
     setDraftEvents((prev) => {
-      if (!event.id) {
-        return [...prev, { ...event, id: `event-${Date.now()}` }];
+      const exists = prev.some((item) => item.id === event.id);
+      if (!exists) {
+        return [...prev, { ...event, id: event.id || `event-${Date.now()}` }];
       }
-
       return prev.map((item) => (item.id === event.id ? event : item));
     });
     setEditingEvent(null);
@@ -60,10 +60,17 @@ export default function AdminEventsPage() {
     setDraftEvents((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleSave = () => {
-    saveEvents(draftEvents);
-    setSavedEvents(draftEvents);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await saveEvents(draftEvents);
+      const refreshed = await fetchEvents();
+      setSavedEvents(refreshed);
+      setDraftEvents(refreshed);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('saveEvents error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

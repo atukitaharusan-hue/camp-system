@@ -57,25 +57,33 @@ export async function fetchSites(): Promise<AdminSite[]> {
 }
 
 export async function saveSites(sites: AdminSite[]): Promise<void> {
-  // upsert 全件 — 削除は差分計算で対応
-  const rows = sites.map((s) => ({
-    id: s.id || undefined,
-    site_number: s.siteNumber,
-    site_name: s.siteName,
-    area: s.area,
-    sub_area: s.subArea,
-    site_status: s.status,
-    capacity: s.capacity,
-    price_per_night: s.basePrice,
-    designation_fee: s.designationFee,
-    is_published: s.isPublished,
-    slope_rating: s.slopeRating,
-    distance_to_facilities: s.facilityDistance,
-    feature_note: s.featureNote,
-    features: { water: s.waterAvailable, electricity: s.electricAvailable, sewer: s.sewerAvailable },
-  }));
-  const { error } = await supabase.from('sites').upsert(rows);
-  if (error) throw error;
+  const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+  for (const s of sites) {
+    const row = {
+      site_number: s.siteNumber,
+      site_name: s.siteName,
+      area: s.area,
+      sub_area: s.subArea,
+      site_status: s.status,
+      capacity: s.capacity,
+      price_per_night: s.basePrice,
+      designation_fee: s.designationFee,
+      is_published: s.isPublished,
+      slope_rating: s.slopeRating,
+      distance_to_facilities: s.facilityDistance,
+      feature_note: s.featureNote,
+      features: { water: s.waterAvailable, electricity: s.electricAvailable, sewer: s.sewerAvailable },
+    };
+
+    if (!s.id || !isUuid(s.id)) {
+      const { error } = await supabase.from('sites').insert(row);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('sites').upsert({ ...row, id: s.id });
+      if (error) throw error;
+    }
+  }
 }
 
 // ============================================================
@@ -166,18 +174,25 @@ export async function fetchEvents(): Promise<AdminEvent[]> {
 }
 
 export async function saveEvents(events: AdminEvent[]): Promise<void> {
-  const rows = events.map((e) => ({
-    id: e.id || undefined,
-    title: e.title,
-    description: e.description,
-    start_at: e.startAt,
-    end_at: e.endAt,
-    location: e.location,
-    image_url: e.imageUrl,
-    is_published: e.isPublished,
-  }));
-  const { error } = await supabase.from('events').upsert(rows);
-  if (error) throw error;
+  const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  for (const e of events) {
+    const row = {
+      title: e.title,
+      description: e.description,
+      start_at: e.startAt,
+      end_at: e.endAt,
+      location: e.location,
+      image_url: e.imageUrl,
+      is_published: e.isPublished,
+    };
+    if (!e.id || !isUuid(e.id)) {
+      const { error } = await supabase.from('events').insert(row);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('events').upsert({ ...row, id: e.id });
+      if (error) throw error;
+    }
+  }
 }
 
 // ============================================================
@@ -211,25 +226,32 @@ export async function fetchOptions(): Promise<OptionItem[]> {
 }
 
 export async function saveOptions(options: OptionItem[]): Promise<void> {
-  const rows = options.map((o) => ({
-    id: o.id || undefined,
-    name: o.name,
-    description: o.description,
-    price: o.price,
-    is_active: o.isActive,
-    category: o.category,
-    price_type: o.priceType,
-    unit_label: o.unitLabel,
-    max_quantity: o.maxQuantity,
-    image_url: o.imageUrl ?? null,
-    event_date: o.eventDate ?? null,
-    duration: o.duration ?? null,
-    location: o.location ?? null,
-    capacity: o.capacity ?? null,
-    current_participants: o.currentParticipants ?? 0,
-  }));
-  const { error } = await supabase.from('options').upsert(rows);
-  if (error) throw error;
+  const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  for (const o of options) {
+    const row = {
+      name: o.name,
+      description: o.description,
+      price: o.price,
+      is_active: o.isActive,
+      category: o.category,
+      price_type: o.priceType,
+      unit_label: o.unitLabel,
+      max_quantity: o.maxQuantity,
+      image_url: o.imageUrl ?? null,
+      event_date: o.eventDate ?? null,
+      duration: o.duration ?? null,
+      location: o.location ?? null,
+      capacity: o.capacity ?? null,
+      current_participants: o.currentParticipants ?? 0,
+    };
+    if (!o.id || !isUuid(o.id)) {
+      const { error } = await supabase.from('options').insert(row);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('options').upsert({ ...row, id: o.id });
+      if (error) throw error;
+    }
+  }
 }
 
 // ============================================================
@@ -398,7 +420,6 @@ export async function saveSalesRule(rule: SalesRule): Promise<void> {
   if (rule.closedDateRanges.length > 0) {
     await supabase.from('closed_date_ranges').insert(
       rule.closedDateRanges.map((r) => ({
-        id: r.id || undefined,
         start_date: r.startDate,
         end_date: r.endDate,
         reason: r.reason,

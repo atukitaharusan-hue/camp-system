@@ -116,10 +116,10 @@ export default function AdminSitesPage() {
 
   const updateDraftSite = (site: AdminSite) => {
     setDraftSites((prev) => {
-      if (!site.id) {
-        return [...prev, { ...site, id: `site-${Date.now()}` }];
+      const exists = prev.some((item) => item.id === site.id);
+      if (!exists) {
+        return [...prev, { ...site, id: site.id || `site-${Date.now()}` }];
       }
-
       return prev.map((item) => (item.id === site.id ? site : item));
     });
     setEditingSite(null);
@@ -150,12 +150,21 @@ export default function AdminSitesPage() {
     });
   };
 
-  const handleSave = () => {
-    saveSites(draftSites);
-    saveSiteMapSettings(draftSiteMaps);
-    setSavedSites(draftSites);
-    setSavedSiteMaps(draftSiteMaps);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await saveSites(draftSites);
+      await saveSiteMapSettings(draftSiteMaps);
+      const refreshed = await fetchSites();
+      setSavedSites(refreshed);
+      setDraftSites(refreshed);
+      const refreshedMaps = await fetchSiteMapSettings();
+      setSavedSiteMaps(refreshedMaps);
+      setDraftSiteMaps(refreshedMaps);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('saveSites error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

@@ -43,10 +43,10 @@ export default function AdminOptionsPage() {
 
   const handleOptionDraftSave = (option: OptionItem) => {
     setDraftOptions((prev) => {
-      if (!option.id) {
-        return [...prev, { ...option, id: `option-${Date.now()}` }];
+      const exists = prev.some((item) => item.id === option.id);
+      if (!exists) {
+        return [...prev, { ...option, id: option.id || `option-${Date.now()}` }];
       }
-
       return prev.map((item) => (item.id === option.id ? option : item));
     });
     setEditingOption(null);
@@ -56,10 +56,17 @@ export default function AdminOptionsPage() {
     setDraftOptions((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleSave = () => {
-    saveOptions(draftOptions);
-    setSavedOptions(draftOptions);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await saveOptions(draftOptions);
+      const refreshed = await fetchOptions();
+      setSavedOptions(refreshed);
+      setDraftOptions(refreshed);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('saveOptions error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

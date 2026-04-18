@@ -26,10 +26,17 @@ export default function AdminPoliciesPage() {
 
   const hasChanges = JSON.stringify(savedSettings) !== JSON.stringify(draftSettings);
 
-  const handleSave = () => {
-    savePolicySettings(draftSettings);
-    setSavedSettings(draftSettings);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await savePolicySettings(draftSettings);
+      const refreshed = await fetchPolicySettings();
+      setSavedSettings(refreshed);
+      setDraftSettings(refreshed);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('savePolicySettings error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

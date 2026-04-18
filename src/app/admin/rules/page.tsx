@@ -21,10 +21,17 @@ export default function AdminRulesPage() {
 
   const hasChanges = JSON.stringify(savedRule) !== JSON.stringify(draftRule);
 
-  const handleSave = () => {
-    saveSalesRule(draftRule);
-    setSavedRule(draftRule);
-    window.alert('変更を適用しました');
+  const handleSave = async () => {
+    try {
+      await saveSalesRule(draftRule);
+      const refreshed = await fetchSalesRule();
+      setSavedRule(refreshed);
+      setDraftRule(refreshed);
+      window.alert('変更を適用しました');
+    } catch (err) {
+      console.error('saveSalesRule error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (

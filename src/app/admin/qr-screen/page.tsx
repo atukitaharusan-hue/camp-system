@@ -12,10 +12,15 @@ export default function AdminQrScreenPage() {
     fetchQrScreenSettings().then(setForm);
   }, []);
 
-  const handleSave = () => {
-    saveQrScreenSettings(form);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1500);
+  const handleSave = async () => {
+    try {
+      await saveQrScreenSettings(form);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1500);
+    } catch (err) {
+      console.error('saveQrScreenSettings error:', err);
+      window.alert('保存に失敗しました。コンソールを確認してください。');
+    }
   };
 
   return (
