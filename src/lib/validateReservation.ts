@@ -216,6 +216,7 @@ export async function validateReservation(input: ReservationValidationInput): Pr
       guests: input.guests,
       selectedSiteNumbers: input.selectedSiteNumbers ?? (normalizedSiteNumber ? [normalizedSiteNumber] : []),
       excludeReservationId: input.excludeReservationId,
+      skipSalesWindow: input.source === 'admin' || input.source === 'admin_update' || input.source === 'import',
     });
 
     if (!inventory.valid) {

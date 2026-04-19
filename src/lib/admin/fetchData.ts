@@ -143,7 +143,7 @@ function buildPlanValidationErrors(plans: AdminPlan[]) {
       plan.salesEndDate &&
       new Date(plan.salesStartDate).getTime() > new Date(plan.salesEndDate).getTime()
     ) {
-      errors.push(`${label}: 販売終了日は販売開始日以降にしてください。`);
+      errors.push(`${label}: 予約可能期間の終了日は開始日以降にしてください。`);
     }
   });
 

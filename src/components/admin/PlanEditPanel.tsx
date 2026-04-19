@@ -562,7 +562,7 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
           </section>
 
           <section className="grid gap-5 md:grid-cols-2">
-            <Field label="販売開始日">
+            <Field label="予約可能期間 開始日" hint="この期間内の宿泊日だけがユーザー予約の対象になります。">
               <input
                 type="date"
                 name="salesStartDate"
@@ -571,7 +571,7 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
               />
             </Field>
-            <Field label="販売終了日">
+            <Field label="予約可能期間 終了日">
               <input
                 type="date"
                 name="salesEndDate"

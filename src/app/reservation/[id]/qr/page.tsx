@@ -135,6 +135,7 @@ export default function ReservationQrPage() {
     reservation.status === 'confirmed' ||
     reservation.status === 'checked_in' ||
     reservation.status === 'completed';
+  const canRenderQr = showQr && reservation.qrToken.trim().length > 0;
 
   return (
     <div className="mx-auto min-h-screen max-w-md bg-gray-50">
@@ -166,7 +167,7 @@ export default function ReservationQrPage() {
           </div>
         )}
 
-        {showQr && (
+        {canRenderQr && (
           <>
             <QrDisplayCard
               qrToken={reservation.qrToken}
@@ -194,6 +195,25 @@ export default function ReservationQrPage() {
               )}
             </div>
           </>
+        )}
+
+        {showQr && !canRenderQr && (
+          <div className="rounded-xl border border-amber-200 bg-white p-6 text-center shadow-sm">
+            <ReservationStatusBadge status={reservation.status} checkedInAt={reservation.checkedInAt} />
+            <p className="mt-4 text-sm text-gray-700">
+              予約は確定していますが、QRコード情報の読み込みに失敗しました。
+            </p>
+            <p className="mt-2 text-xs leading-6 text-gray-500">
+              時間をおいて再読み込みするか、管理画面の予約一覧から受付コードをご確認ください。
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              再読み込み
+            </button>
+          </div>
         )}
 
         <ReservationSummaryCard reservation={reservation} />

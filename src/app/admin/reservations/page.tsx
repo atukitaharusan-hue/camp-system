@@ -16,7 +16,7 @@ type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
 const STATUS_OPTIONS: Array<{ value: ReservationStatus | 'all'; label: string }> = [
   { value: 'all', label: 'すべて' },
-  { value: 'pending', label: '予約待ち' },
+  { value: 'pending', label: '仮予約' },
   { value: 'confirmed', label: '予約確定' },
   { value: 'checked_in', label: 'チェックイン済み' },
   { value: 'completed', label: '利用完了' },
@@ -43,23 +43,32 @@ function getGuestBreakdown(reservation: GuestReservationRow) {
   return { adults, children, infants };
 }
 
+function getStatusLabel(status: ReservationStatus | null) {
+  return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status ?? '未設定';
+}
+
 export default function AdminReservationsPage() {
   const [reservations, setReservations] = useState<GuestReservationRow[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'all'>('all');
   const [keyword, setKeyword] = useState('');
+  const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
 
   const loadReservations = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     const result = await fetchReservations();
     if (result.error) {
       setError(result.error);
     } else {
       setReservations(result.data);
     }
+
     setLoading(false);
   }, []);
 
@@ -92,9 +101,43 @@ export default function AdminReservationsPage() {
     [keyword, reservations, statusFilter],
   );
 
+  const filteredReservationIds = useMemo(
+    () => filteredReservations.map((reservation) => reservation.id),
+    [filteredReservations],
+  );
+
+  const selectedCount = selectedReservationIds.length;
+  const allFilteredSelected =
+    filteredReservationIds.length > 0 && filteredReservationIds.every((reservationId) => selectedReservationIds.includes(reservationId));
+
+  const toggleReservationSelection = useCallback((reservationId: string) => {
+    setSelectedReservationIds((current) =>
+      current.includes(reservationId) ? current.filter((id) => id !== reservationId) : [...current, reservationId],
+    );
+  }, []);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    setSelectedReservationIds((current) => {
+      if (allFilteredSelected) {
+        return current.filter((reservationId) => !filteredReservationIds.includes(reservationId));
+      }
+
+      const next = new Set(current);
+      filteredReservationIds.forEach((reservationId) => next.add(reservationId));
+      return Array.from(next);
+    });
+  }, [allFilteredSelected, filteredReservationIds]);
+
+  const getPlanName = useCallback(
+    (planId: string | null) => plans.find((plan) => plan.id === planId)?.name ?? '未設定',
+    [plans],
+  );
+
   const handleDelete = useCallback(
     async (reservationId: string) => {
-      if (!window.confirm('この予約をキャンセル扱いにします。よろしいですか？')) return;
+      if (!window.confirm('この予約を削除します。よろしいですか？')) return;
+
+      setActionMessage(null);
 
       const {
         data: { user },
@@ -102,16 +145,63 @@ export default function AdminReservationsPage() {
 
       const result = await cancelReservation(reservationId, user?.email ?? 'admin');
       if (!result.success) {
-        window.alert(result.error ?? 'キャンセルに失敗しました。');
+        window.alert(result.error ?? '予約の削除に失敗しました。');
         return;
       }
 
+      setSelectedReservationIds((current) => current.filter((id) => id !== reservationId));
+      setActionMessage('予約を削除しました。空き枠にも反映されています。');
       await loadReservations();
     },
     [loadReservations],
   );
 
-  const getPlanName = (planId: string | null) => plans.find((plan) => plan.id === planId)?.name ?? '未設定';
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedReservationIds.length === 0) {
+      setActionMessage('一括削除する予約を選択してください。');
+      return;
+    }
+
+    if (!window.confirm(`選択した ${selectedReservationIds.length} 件の予約を削除します。よろしいですか？`)) return;
+
+    setBulkDeleting(true);
+    setActionMessage(null);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const failedReservations: Array<{ code: string; error: string }> = [];
+
+    for (const reservationId of selectedReservationIds) {
+      const result = await cancelReservation(reservationId, user?.email ?? 'admin');
+      if (!result.success) {
+        failedReservations.push({
+          code: generateReceptionCode(reservationId),
+          error: result.error ?? '削除に失敗しました。',
+        });
+      }
+    }
+
+    await loadReservations();
+
+    if (failedReservations.length === 0) {
+      setSelectedReservationIds([]);
+      setActionMessage(`${selectedReservationIds.length} 件の予約を削除しました。空き枠にも反映されています。`);
+      setBulkDeleting(false);
+      return;
+    }
+
+    const failedCodes = failedReservations.map((item) => `${item.code}: ${item.error}`).join(' / ');
+    const failedCodeSet = new Set(failedReservations.map((item) => item.code));
+    setSelectedReservationIds((current) =>
+      current.filter((reservationId) => failedCodeSet.has(generateReceptionCode(reservationId))),
+    );
+    setActionMessage(
+      `一括削除は一部失敗しました。成功 ${selectedReservationIds.length - failedReservations.length} 件 / 失敗 ${failedReservations.length} 件 (${failedCodes})`,
+    );
+    setBulkDeleting(false);
+  }, [loadReservations, selectedReservationIds]);
 
   return (
     <div className="max-w-7xl space-y-4">
@@ -119,7 +209,7 @@ export default function AdminReservationsPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">予約一覧</h1>
           <p className="mt-1 text-sm text-gray-500">
-            予約状況の確認、編集、キャンセルができます。人数内訳とサイト指定状況もここで確認できます。
+            予約内容の確認、編集、キャンセルができます。人数内訳やサイト選択状況もここで確認できます。
           </p>
         </div>
         <div className="flex gap-2">
@@ -157,16 +247,53 @@ export default function AdminReservationsPage() {
         </div>
       </div>
 
+      {!loading && !error && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="text-sm text-gray-600">
+            選択中: <span className="font-semibold text-gray-900">{selectedCount}</span> 件
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSelectAllFiltered}
+              className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {allFilteredSelected ? '表示中の選択を解除' : '表示中をすべて選択'}
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={selectedCount === 0 || bulkDeleting}
+              className="rounded-full border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkDeleting ? '削除中...' : '一括削除'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading && <div className="rounded border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">読み込み中...</div>}
       {!loading && error && <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+      {!loading && !error && actionMessage && (
+        <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">{actionMessage}</div>
+      )}
 
       {!loading && !error && (
         <div className="overflow-x-auto rounded border border-gray-200 bg-white">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wider text-gray-500">
+                <th className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAllFiltered}
+                    aria-label="表示中の予約をすべて選択"
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                </th>
                 <th className="px-4 py-3">受付コード</th>
-                <th className="px-4 py-3">予約者</th>
+                <th className="px-4 py-3">予約者情報</th>
                 <th className="px-4 py-3">宿泊情報</th>
                 <th className="px-4 py-3">プラン / サイト</th>
                 <th className="px-4 py-3">支払い</th>
@@ -185,6 +312,15 @@ export default function AdminReservationsPage() {
 
                 return (
                   <tr key={reservation.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedReservationIds.includes(reservation.id)}
+                        onChange={() => toggleReservationSelection(reservation.id)}
+                        aria-label={`${reservation.user_name} の予約を選択`}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-mono text-blue-600">
                       <Link href={`/admin/reservations/${reservation.id}`}>{generateReceptionCode(reservation.id)}</Link>
                     </td>
@@ -198,9 +334,11 @@ export default function AdminReservationsPage() {
                         {reservation.check_in_date} - {reservation.check_out_date}
                       </div>
                       <div>
-                        合計 {reservation.guests}名 / {reservation.reserved_site_count ?? 1}サイト
+                        合計 {reservation.guests} 名 / {reservation.reserved_site_count ?? 1} サイト
                       </div>
-                    <div>大人(中学生以上) {adults} / 子ども {children} / 幼児 {infants}</div>
+                      <div>
+                        大人(中学生以上) {adults} / 子ども {children} / 幼児 {infants}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs leading-5 text-gray-600">
                       <div>{getPlanName(reservation.plan_id)}</div>
@@ -212,7 +350,7 @@ export default function AdminReservationsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGES[reservation.status ?? 'pending']}`}>
-                        {STATUS_OPTIONS.find((option) => option.value === reservation.status)?.label ?? reservation.status}
+                        {getStatusLabel(reservation.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -228,7 +366,7 @@ export default function AdminReservationsPage() {
                           onClick={() => handleDelete(reservation.id)}
                           className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
                         >
-                          キャンセル
+                          削除
                         </button>
                       </div>
                     </td>

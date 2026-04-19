@@ -43,10 +43,15 @@ export default function ReservationSummaryCard({
       };
     }
 
-    fetchOptions().then((options) => {
-      if (!active) return;
-      setOptionNames(new Map(options.map((option) => [option.id, option.name])));
-    });
+    fetchOptions()
+      .then((options) => {
+        if (!active) return;
+        setOptionNames(new Map(options.map((option) => [option.id, option.name])));
+      })
+      .catch(() => {
+        if (!active) return;
+        setOptionNames(new Map());
+      });
 
     return () => {
       active = false;

@@ -582,7 +582,7 @@ export default function AdminPlansPage() {
               </div>
 
               <div className="flex items-center justify-between text-sm text-slate-500">
-                <span>販売期間</span>
+                <span>予約可能期間</span>
                 <span className="font-medium text-slate-700">
                   {plan.salesStartDate && plan.salesEndDate
                     ? `${plan.salesStartDate} - ${plan.salesEndDate}`

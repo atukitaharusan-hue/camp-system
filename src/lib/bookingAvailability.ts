@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
+import { evaluatePlanBookablePeriod } from '@/lib/planSalesPeriod';
 import type { AdminPlan, AdminSite, SalesRule } from '@/types/admin';
 import type { Database } from '@/types/database';
 
@@ -52,6 +53,7 @@ export interface InventoryValidationInput {
   guests: number;
   selectedSiteNumbers?: string[];
   excludeReservationId?: string;
+  skipSalesWindow?: boolean;
 }
 
 export interface InventoryValidationResult {
@@ -242,8 +244,8 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
   const siteLookup = buildSiteLookup(sites);
   const planSiteMap = buildPlanSiteMap(plans);
   const activeReservations = reservations.filter(isActiveReservation);
-
   return plans.map((plan): PlanAvailabilitySummary => {
+    const salesWindow = evaluatePlanBookablePeriod(plan, checkInDate, checkOutDate);
     let minAvailableSites = Number.POSITIVE_INFINITY;
     let minRemainingConcurrentReservations = Number.POSITIVE_INFINITY;
 
@@ -270,16 +272,19 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
       );
     }
 
+    const availableSites = Number.isFinite(minAvailableSites) ? minAvailableSites : 0;
+    const remainingConcurrentReservations = Number.isFinite(minRemainingConcurrentReservations)
+      ? minRemainingConcurrentReservations
+      : 0;
+
     return {
       planId: plan.id,
       planName: plan.name,
-      availableSites: Number.isFinite(minAvailableSites) ? minAvailableSites : 0,
+      availableSites: salesWindow.isAvailable ? availableSites : 0,
       maxSiteCount: plan.maxSiteCount > 0 ? plan.maxSiteCount : plan.capacity,
       maxConcurrentReservations: plan.maxConcurrentReservations,
       maxGuestsPerReservation: plan.maxGuestsPerReservation,
-      remainingConcurrentReservations: Number.isFinite(minRemainingConcurrentReservations)
-        ? minRemainingConcurrentReservations
-        : 0,
+      remainingConcurrentReservations: salesWindow.isAvailable ? remainingConcurrentReservations : 0,
     };
   });
 }
@@ -302,6 +307,9 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
 
   return monthDates.flatMap((date) =>
     plans.map((plan): PlanAvailabilityDay => {
+      const nextDate = new Date(`${date}T00:00:00Z`);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      const salesWindow = evaluatePlanBookablePeriod(plan, date, toIsoDate(nextDate));
       const { reservedSites, concurrentReservations } = getPlanReservationMetricsForDate({
         date,
         planId: plan.id,
@@ -316,10 +324,11 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
       );
       const availableSites =
         remainingConcurrentReservations <= 0 ? 0 : Math.max(0, capacity - reservedSites);
+      const effectiveAvailableSites = salesWindow.isAvailable ? availableSites : 0;
       const mark: AvailabilityMark =
-        availableSites <= 0 || capacity <= 0
+        effectiveAvailableSites <= 0 || capacity <= 0
           ? 'full'
-          : availableSites / capacity < LOW_STOCK_RATIO
+          : effectiveAvailableSites / capacity < LOW_STOCK_RATIO
             ? 'triangle'
             : 'circle';
 
@@ -330,7 +339,7 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
         reservedSites,
         concurrentReservations,
         remainingConcurrentReservations,
-        availableSites,
+        availableSites: effectiveAvailableSites,
         mark,
       };
     }),
@@ -345,9 +354,18 @@ export async function validateInventory(
     input.checkOutDate,
   );
   const plan = plans.find((item) => item.id === input.planId);
+  const salesWindow = plan ? evaluatePlanBookablePeriod(plan, input.checkInDate, input.checkOutDate) : null;
 
   if (!plan) {
     return { valid: false, errors: ['対象プランが見つかりません。'], availableSiteCount: 0 };
+  }
+
+  if (!input.skipSalesWindow && salesWindow && !salesWindow.isAvailable) {
+    return {
+      valid: false,
+      errors: [salesWindow.reason ?? '予約可能期間外のため予約できません。'],
+      availableSiteCount: 0,
+    };
   }
 
   const selectedSiteNumbers = (input.selectedSiteNumbers ?? []).filter(Boolean);
