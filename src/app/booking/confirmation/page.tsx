@@ -11,6 +11,7 @@ import { generateQrToken } from '@/lib/generateQrToken';
 import { bookingToReservation } from '@/lib/bookingToReservation';
 import { createReservation } from '@/lib/createReservation';
 import { validateReservation, formatUserErrors } from '@/lib/validateReservation';
+import { generateReceptionCode } from '@/types/reservation';
 import type { PricingLineItem, ReservationPricingBreakdown } from '@/types/pricing';
 
 function formatDate(dateStr: string): string {
@@ -125,6 +126,7 @@ export default function BookingConfirmationPage() {
   const [pricingBreakdown, setPricingBreakdown] = useState<ReservationPricingBreakdown | null>(null);
   const [isPricingLoading, setIsPricingLoading] = useState(true);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const [completedReservationId, setCompletedReservationId] = useState<string | null>(null);
 
   const accommodationAmount = calculatePlanAccommodationAmount(
     {
@@ -334,13 +336,53 @@ export default function BookingConfirmationPage() {
         return;
       }
 
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem('lastReservationId', result.reservation.id);
+      }
+
+      setCompletedReservationId(result.reservation.id);
       resetDraft();
-      router.push(`/reservation/${result.reservation.id}/qr`);
+      setIsSubmitting(false);
     } catch {
       setSubmitError('予約確定時にエラーが発生しました。時間をおいて再度お試しください。');
       setIsSubmitting(false);
     }
   };
+
+  if (completedReservationId) {
+    return (
+      <CenterPanel
+        title="予約を確定しました"
+        description={'予約情報を保存しました。\n完了画面への自動遷移は行わず、この画面から確実に次の操作へ進めるようにしています。'}
+        action={
+          <div className="flex flex-col gap-3">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              受付コード: <span className="font-mono font-bold">{generateReceptionCode(completedReservationId)}</span>
+            </div>
+            <a
+              href={`/reservation/${completedReservationId}/qr`}
+              className="inline-block rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              QR画面を開く
+            </a>
+            <Link
+              href={`/reservation/${completedReservationId}/qr`}
+              prefetch={false}
+              className="inline-block rounded-xl border border-emerald-300 px-6 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+            >
+              同じ画面で開き直す
+            </Link>
+            <Link
+              href="/"
+              className="inline-block rounded-xl border border-gray-300 px-6 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              TOPへ戻る
+            </Link>
+          </div>
+        }
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-stone-50 to-emerald-50/30 py-8 pb-28">
