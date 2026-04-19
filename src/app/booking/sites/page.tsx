@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { resolvePlanAccommodationAmount } from '@/lib/pricing';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
-import { siteTypeLabels, type SiteType } from '@/types/site';
 import type { AdminSiteMapSettings } from '@/types/admin';
 import type { SiteDetail } from '@/types/site';
 
@@ -14,15 +14,27 @@ export default function SitesPage() {
   const stay = useBookingDraftStore((state) => state.stay);
   const plan = useBookingDraftStore((state) => state.plan);
   const storedSiteId = useBookingDraftStore((state) => state.site.siteId);
+  const storedSelectedSiteNumbers = useBookingDraftStore(
+    (state) => state.site.selectedSiteNumbers,
+  );
   const setSite = useBookingDraftStore((state) => state.setSite);
 
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
   const hasPlan = !!(plan.majorCategoryId && plan.minorPlanId);
 
   const [sites, setSites] = useState<SiteDetail[]>([]);
-  const [siteMapSettings, setSiteMapSettings] = useState<AdminSiteMapSettings>({ description: '', imageUrls: [] });
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(storedSiteId && storedSiteId !== 'auto-assigned' ? storedSiteId : null);
-  const [isUndesignated, setIsUndesignated] = useState(storedSiteId === 'auto-assigned');
+  const [siteMapSettings, setSiteMapSettings] = useState<AdminSiteMapSettings>({
+    description: '',
+    imageUrls: [],
+  });
+  const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
+    storedSiteId && storedSiteId !== 'auto-assigned'
+      ? [storedSiteId]
+      : [],
+  );
+  const [isUndesignated, setIsUndesignated] = useState(
+    storedSiteId === 'auto-assigned',
+  );
 
   useEffect(() => {
     if (!hasStay) {
@@ -45,72 +57,71 @@ export default function SitesPage() {
     [plan.minorPlanId, sites],
   );
 
-  /** 互換サイトの最頻タイプをデフォルトフィルターとして使う */
-  const preferredType = useMemo(() => {
-    if (compatibleSites.length === 0) return undefined;
-    const counts = new Map<SiteType, number>();
-    for (const s of compatibleSites) {
-      counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
-    }
-    let best: SiteType | undefined;
-    let max = 0;
-    for (const [t, c] of counts) {
-      if (c > max) { max = c; best = t; }
-    }
-    return best;
-  }, [compatibleSites]);
-  const autoAreaNames = useMemo(
-    () => Array.from(new Set(compatibleSites.map((site) => site.areaName))).filter(Boolean),
-    [compatibleSites],
-  );
-  const autoTypes = useMemo(
-    () => Array.from(new Set(compatibleSites.map((site) => site.type))),
-    [compatibleSites],
-  );
-
-  const [activeAreaName, setActiveAreaName] = useState('');
-  const [activeType, setActiveType] = useState<SiteType | ''>('');
-
   useEffect(() => {
-    if (!autoAreaNames.includes(activeAreaName)) {
-      setActiveAreaName(autoAreaNames[0] ?? '');
-    }
-  }, [activeAreaName, autoAreaNames]);
+    if (compatibleSites.length === 0) return;
+    if (storedSelectedSiteNumbers.length === 0) return;
 
-  useEffect(() => {
-    if (preferredType && autoTypes.includes(preferredType) && activeType !== preferredType) {
-      setActiveType(preferredType);
-      return;
-    }
-    if (!activeType || !autoTypes.includes(activeType)) {
-      setActiveType((autoTypes[0] as SiteType | undefined) ?? '');
-    }
-  }, [activeType, autoTypes, preferredType]);
+    const resolvedIds = compatibleSites
+      .filter((site) => storedSelectedSiteNumbers.includes(site.siteNumber))
+      .map((site) => site.id);
 
-  const filteredSites = useMemo(
-    () =>
-      compatibleSites.filter(
-        (site) =>
-          (!activeAreaName || site.areaName === activeAreaName) &&
-          (!activeType || site.type === activeType),
-      ),
-    [activeAreaName, activeType, compatibleSites],
+    if (resolvedIds.length > 0) {
+      setSelectedSiteIds(resolvedIds);
+      setIsUndesignated(false);
+    }
+  }, [compatibleSites, storedSelectedSiteNumbers]);
+
+  const selectedSites = useMemo(
+    () => compatibleSites.filter((site) => selectedSiteIds.includes(site.id)),
+    [compatibleSites, selectedSiteIds],
   );
 
-  const selectedSite = useMemo(
-    () => sites.find((site) => site.id === selectedSiteId),
-    [selectedSiteId, sites],
+  const requestedSiteCount = Math.max(1, plan.requestedSiteCount || 1);
+  const pricingResult = resolvePlanAccommodationAmount(
+    {
+      pricingMode: plan.pricingMode,
+      basePrice: plan.basePrice,
+      adultPrice: plan.adultPrice,
+      childPrice: plan.childPrice,
+      infantPrice: plan.infantPrice,
+      guestBandRules: plan.guestBandRules,
+    },
+    {
+      adults: stay.adults,
+      children: stay.children,
+      infants: stay.infants,
+    },
+    {
+      checkInDate: stay.checkIn,
+    },
   );
+  const accommodationAmount = pricingResult.amount;
+  const canSelectMore = selectedSiteIds.length < requestedSiteCount;
 
   const handleSelect = (siteId: string) => {
-    const nextSite = sites.find((item) => item.id === siteId);
+    const nextSite = compatibleSites.find((item) => item.id === siteId);
     if (!nextSite || !nextSite.available) return;
-    setSelectedSiteId(nextSite.id);
+
     setIsUndesignated(false);
+    setSelectedSiteIds((prev) => {
+      if (prev.includes(siteId)) {
+        return prev.filter((id) => id !== siteId);
+      }
+
+      if (requestedSiteCount === 1) {
+        return [siteId];
+      }
+
+      if (prev.length >= requestedSiteCount) {
+        return prev;
+      }
+
+      return [...prev, siteId];
+    });
   };
 
   const handleUndesignated = () => {
-    setSelectedSiteId(null);
+    setSelectedSiteIds([]);
     setIsUndesignated(true);
   };
 
@@ -119,116 +130,138 @@ export default function SitesPage() {
       setSite({
         siteId: 'auto-assigned',
         siteNumber: null,
-        siteName: 'サイト指定なし',
-        sitePrice: 0,
+        siteName:
+          requestedSiteCount > 1
+            ? `${requestedSiteCount}サイトを自動割当`
+            : '指定なし ※無料',
+        sitePrice: accommodationAmount,
         siteFee: 0,
         designationFee: 0,
         areaId: null,
         areaName: null,
         subAreaName: null,
+        selectedSiteNumbers: [],
       });
       router.push('/booking/options');
       return;
     }
 
-    if (!selectedSite) return;
+    if (selectedSites.length !== requestedSiteCount) return;
+
+    const primarySite = selectedSites[0];
+    const totalDesignationFee = selectedSites.reduce(
+      (sum, site) => sum + site.designationFee,
+      0,
+    );
+
     setSite({
-      siteId: selectedSite.id,
-      siteNumber: selectedSite.siteNumber,
-      siteName: selectedSite.siteName,
-      sitePrice: selectedSite.price,
-      siteFee: selectedSite.price,
-      designationFee: selectedSite.designationFee,
-      areaId: selectedSite.areaName,
-      areaName: selectedSite.areaName,
-      subAreaName: selectedSite.subAreaName,
+      siteId:
+        selectedSites.length === 1
+          ? primarySite.id
+          : selectedSites.map((site) => site.id).join(','),
+      siteNumber: selectedSites.length === 1 ? primarySite.siteNumber : null,
+      siteName:
+        selectedSites.length === 1
+          ? primarySite.siteName
+          : `${selectedSites.length}サイト指定`,
+      sitePrice: accommodationAmount,
+      siteFee: totalDesignationFee,
+      designationFee: totalDesignationFee,
+      areaId: null,
+      areaName: null,
+      subAreaName: null,
+      selectedSiteNumbers: selectedSites.map((site) => site.siteNumber),
     });
     router.push('/booking/options');
   };
 
+  const canProceed = pricingResult.valid && (isUndesignated || selectedSites.length === requestedSiteCount);
+
   return (
     <div className="min-h-screen bg-white py-8">
       <div className="mx-auto max-w-7xl px-4">
+        <section className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
+          プランまたはサイト情報が表示されるまでに、1分ほどかかる場合があります。
+          <br />
+          お手数をおかけしますが、そのままお待ちください。
+        </section>
+
         <div className="mb-8 text-center">
-          <Link href="/booking/plans" className="text-sm text-emerald-700 hover:text-emerald-800">
+          <Link
+            href="/booking/plans"
+            className="text-sm text-emerald-700 hover:text-emerald-800"
+          >
             プラン選択へ戻る
           </Link>
           <h1 className="mt-4 text-3xl font-bold text-gray-900">サイト選択</h1>
           <p className="mt-2 text-sm text-gray-500">
-            選択中のプランに合うサイトだけを表示しています。エリアとサイト種類で絞り込みながらお選びください。
+            プランに紐づくサイトを選択してください。必要なサイト数まで複数選択できます。
           </p>
         </div>
 
         <div className="mb-6 grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryItem label="宿泊日" value={`${stay.checkIn} 〜 ${stay.checkOut}`} />
+          <SummaryItem label="宿泊日程" value={`${stay.checkIn} - ${stay.checkOut}`} />
           <SummaryItem label="宿泊数" value={`${stay.nights}泊`} />
           <SummaryItem label="選択中のプラン" value={plan.planName ?? '未選択'} />
-          <SummaryItem label="自動表示サイト種類" value={activeType ? siteTypeLabels[activeType] : '未設定'} />
+          <SummaryItem label="予約サイト数" value={`${requestedSiteCount}サイト`} />
         </div>
 
         <div className="grid gap-8 xl:grid-cols-[1.05fr,1fr]">
           <div className="space-y-6">
             <section className="rounded-2xl border border-gray-200 bg-white p-5">
               <h2 className="text-lg font-semibold text-gray-900">サイトマップ</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-600">{siteMapSettings.description}</p>
+              <p className="mt-2 text-sm leading-6 text-gray-600">
+                {siteMapSettings.description}
+              </p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 {siteMapSettings.imageUrls.map((imageUrl, index) => (
-                  <div key={`${imageUrl}-${index}`} className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-                    <img src={imageUrl} alt={`サイトマップ ${index + 1}`} className="h-60 w-full object-cover" />
+                  <div
+                    key={`${imageUrl}-${index}`}
+                    className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50"
+                  >
+                    <img
+                      src={imageUrl}
+                      alt={`サイトマップ ${index + 1}`}
+                      className="h-60 w-full object-cover"
+                    />
                   </div>
                 ))}
               </div>
             </section>
 
             <section className="rounded-2xl border border-gray-200 bg-white p-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">エリア</span>
-                  <select
-                    value={isUndesignated ? '__undesignated__' : activeAreaName}
-                    onChange={(event) => {
-                      const v = event.target.value;
-                      if (v === '__undesignated__') {
-                        handleUndesignated();
-                      } else {
-                        setIsUndesignated(false);
-                        setActiveAreaName(v);
-                      }
-                    }}
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="__undesignated__">サイト指定しない</option>
-                    {autoAreaNames.map((areaName) => (
-                      <option key={areaName} value={areaName}>
-                        {areaName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">サイト種類で絞り込む</span>
-                  <select
-                    value={activeType}
-                    disabled={isUndesignated}
-                    onChange={(event) => setActiveType(event.target.value as SiteType)}
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
-                  >
-                    {autoTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {siteTypeLabels[type]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">サイトの選び方</h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    サイト番号を指定するか、指定無しをお選びください。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUndesignated}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    isUndesignated
+                      ? 'border-amber-300 bg-amber-50 text-amber-900'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  指定なし ※無料
+                </button>
               </div>
 
-              {isUndesignated && (
-                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm font-semibold text-amber-900">サイト指定なし</p>
-                  <p className="mt-1 text-xs text-amber-800">※当日の混雑状況に伴い自動で決定いたします。</p>
-                  <p className="mt-1 text-xs text-amber-800">この場合、追加費用は0円です。</p>
-                </div>
-              )}
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">
+                  選択中 {selectedSites.length} / {requestedSiteCount} サイト
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {isUndesignated
+                    ? '指定なしで進みます。'
+                    : requestedSiteCount > 1
+                      ? `必要なサイト数まで選択してください。上限 ${requestedSiteCount} サイトです。`
+                      : '1サイト選択してください。'}
+                </p>
+              </div>
             </section>
           </div>
 
@@ -237,73 +270,78 @@ export default function SitesPage() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">サイト一覧</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  {activeAreaName || '未設定'} / {activeType ? siteTypeLabels[activeType] : '未設定'}
+                  このプランで予約できるサイトを表示しています。
                 </p>
               </div>
               <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                {filteredSites.length}件
+                {compatibleSites.length}件
               </span>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              {filteredSites.map((site) => (
-                <button
-                  key={site.id}
-                  type="button"
-                  disabled={!site.available}
-                  onClick={() => handleSelect(site.id)}
-                  className={`rounded-2xl border p-4 text-left transition-colors ${
-                    selectedSiteId === site.id && !isUndesignated
-                      ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-100'
-                      : 'border-gray-200 bg-white'
-                  } ${site.available ? 'hover:border-emerald-300' : 'cursor-not-allowed bg-gray-50 text-gray-400'}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs text-gray-400">{site.areaName}</p>
-                      <h3 className="mt-1 text-base font-semibold text-gray-900">{site.siteNumber}</h3>
-                      <p className="text-sm text-gray-500">{site.siteName}</p>
+              {compatibleSites.map((site) => {
+                const isSelected = selectedSiteIds.includes(site.id);
+                const disabled =
+                  !site.available || (!isSelected && !canSelectMore && !isUndesignated);
+
+                return (
+                  <button
+                    key={site.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => handleSelect(site.id)}
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-100'
+                        : 'border-gray-200 bg-white'
+                    } ${disabled ? 'cursor-not-allowed grayscale' : 'hover:border-emerald-300'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-gray-900">
+                          {site.siteNumber}
+                        </h3>
+                        <p className="text-sm text-gray-500">{site.siteName}</p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          !site.available
+                            ? 'bg-gray-100 text-gray-500'
+                            : isSelected
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-sky-100 text-sky-700'
+                        }`}
+                      >
+                        {!site.available ? '満枠' : isSelected ? '選択中' : '選択可能'}
+                      </span>
                     </div>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        site.available ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {site.available ? '選択可能' : '停止中'}
-                    </span>
-                  </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    {site.features.water && <FeatureBadge label="水道あり" tone="blue" />}
-                    {site.features.electricity && <FeatureBadge label="電気あり" tone="yellow" />}
-                    {site.features.sewer && <FeatureBadge label="下水あり" tone="emerald" />}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <SummaryItem compact label="サイト料" value={`¥${site.price.toLocaleString()}`} />
-                    <SummaryItem compact label="指定料" value={`¥${site.designationFee.toLocaleString()}`} />
-                    <SummaryItem compact label="傾斜" value={`${site.slope} / 5`} />
-                    <SummaryItem compact label="水場・管理棟まで" value={`${site.distance}m`} />
-                  </div>
-
-                  <p className="mt-3 text-sm leading-6 text-gray-600">{site.description}</p>
-                </button>
-              ))}
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      <SummaryItem
+                        compact
+                        label="指定料金"
+                        value={`¥${site.designationFee.toLocaleString()}`}
+                      />
+                      <SummaryItem compact label="定員" value={`${site.capacity}名`} />
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-gray-600">
+                      {site.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
 
-            {selectedSite && !isUndesignated && (
+            {selectedSites.length > 0 && !isUndesignated && (
               <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <h3 className="text-base font-semibold text-gray-900">選択中のサイト</h3>
-                <p className="mt-2 text-sm text-gray-700">
-                  {selectedSite.siteNumber} / {selectedSite.siteName}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-gray-600">{selectedSite.description}</p>
-              </div>
-            )}
-
-            {isUndesignated && (
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                サイトは当日の混雑状況に合わせて自動決定します。指定料金はかかりません。
+                <ul className="mt-2 space-y-2 text-sm text-gray-700">
+                  {selectedSites.map((site) => (
+                    <li key={site.id}>
+                      {site.siteNumber} / {site.siteName}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </section>
@@ -318,7 +356,7 @@ export default function SitesPage() {
           </Link>
           <button
             type="button"
-            disabled={!selectedSiteId && !isUndesignated}
+            disabled={!canProceed}
             onClick={handleNext}
             className="rounded-xl bg-emerald-600 px-8 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300"
           >
@@ -345,14 +383,4 @@ function SummaryItem({
       <dd className="mt-1 text-sm font-semibold text-gray-900">{value}</dd>
     </div>
   );
-}
-
-function FeatureBadge({ label, tone }: { label: string; tone: 'blue' | 'yellow' | 'emerald' }) {
-  const styles = {
-    blue: 'bg-blue-100 text-blue-700',
-    yellow: 'bg-yellow-100 text-yellow-700',
-    emerald: 'bg-emerald-100 text-emerald-700',
-  };
-
-  return <span className={`rounded-full px-2.5 py-1 font-medium ${styles[tone]}`}>{label}</span>;
 }

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import type { GuestBandSeasonRule, PlanPricingMode } from "@/types/admin";
 
 /* ─── 型定義 ─── */
 
@@ -10,12 +11,20 @@ export type BookingDraft = {
     nights: number;
     adults: number;
     children: number;
+    infants: number;
   };
   plan: {
     majorCategoryId: string | null;
     minorPlanId: string | null;
     planName: string | null;
     categoryName: string | null;
+    pricingMode: PlanPricingMode;
+    basePrice: number;
+    adultPrice: number;
+    childPrice: number;
+    infantPrice: number;
+    guestBandRules: GuestBandSeasonRule[];
+    requestedSiteCount: number;
   };
   site: {
     areaId: string | null;
@@ -27,6 +36,7 @@ export type BookingDraft = {
     designationFee: number;
     areaName: string | null;
     subAreaName: string | null;
+    selectedSiteNumbers: string[];
   };
   options: {
     rentals: Array<{
@@ -90,12 +100,20 @@ const initialDraft: BookingDraft = {
     nights: 0,
     adults: 1,
     children: 0,
+    infants: 0,
   },
   plan: {
     majorCategoryId: null,
     minorPlanId: null,
     planName: null,
     categoryName: null,
+    pricingMode: "per_group",
+    basePrice: 0,
+    adultPrice: 0,
+    childPrice: 0,
+    infantPrice: 0,
+    guestBandRules: [],
+    requestedSiteCount: 1,
   },
   site: {
     areaId: null,
@@ -107,6 +125,7 @@ const initialDraft: BookingDraft = {
     designationFee: 0,
     areaName: null,
     subAreaName: null,
+    selectedSiteNumbers: [],
   },
   options: {
     rentals: [],

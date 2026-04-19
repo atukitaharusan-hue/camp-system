@@ -52,6 +52,16 @@ export interface BookingContext {
   checkOutDate: string;
   nights: number;
   guests: number;
+  adults: number;
+  children: number;
+  infants: number;
+  planPricingMode: PlanPricingMode;
+  planBasePrice: number;
+  planAdultPrice: number;
+  planChildPrice: number;
+  planInfantPrice: number;
+  planGuestBandRules: GuestBandSeasonRule[];
+  requestedSiteCount: number;
   siteId: string;
   siteNumber: string;
   siteName: string;
@@ -85,3 +95,4 @@ export interface TermsPaymentPayload {
   selectedPayment: string;
   totalAmount: number;
 }
+import type { GuestBandSeasonRule, PlanPricingMode } from "./admin";

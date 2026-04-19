@@ -11,9 +11,11 @@ interface Props {
 
 export default function SiteEditPanel({ site, onClose, onSave }: Props) {
   const [form, setForm] = useState<AdminSite>({ ...site });
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = event.target;
+    setErrorMessage('');
     setForm((prev) => ({
       ...prev,
       [name]:
@@ -27,8 +29,24 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
+
+    if (!form.siteNumber.trim()) {
+      setErrorMessage('サイト番号を入力してください。');
+      return;
+    }
+
+    if (!form.siteName.trim()) {
+      setErrorMessage('サイト名を入力してください。');
+      return;
+    }
+
     onSave({
       ...form,
+      siteNumber: form.siteNumber.trim(),
+      siteName: form.siteName.trim(),
+      area: form.area.trim(),
+      subArea: form.subArea.trim(),
+      featureNote: form.featureNote.trim(),
       id: form.id || `site-${Date.now()}`,
       createdAt: form.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -48,8 +66,14 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+          {errorMessage && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+              {errorMessage}
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="サイト番号">
+            <Field label="サイト番号" required>
               <input
                 type="text"
                 name="siteNumber"
@@ -58,7 +82,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
-            <Field label="サイト名">
+            <Field label="サイト名" required>
               <input
                 type="text"
                 name="siteName"
@@ -79,7 +103,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
-            <Field label="サイト種類">
+            <Field label="サイト種別・補足">
               <input
                 type="text"
                 name="subArea"
@@ -99,11 +123,11 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
             >
               <option value="active">公開中</option>
               <option value="maintenance">メンテナンス中</option>
-              <option value="closed">停止中</option>
+              <option value="closed">受付停止</option>
             </select>
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="定員">
               <input
                 type="number"
@@ -114,17 +138,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
-            <Field label="基本料金">
-              <input
-                type="number"
-                min={0}
-                name="basePrice"
-                value={form.basePrice}
-                onChange={handleChange}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
-              />
-            </Field>
-            <Field label="指定料">
+            <Field label="サイト指定料金">
               <input
                 type="number"
                 min={0}
@@ -134,6 +148,12 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            基本料金はプラン管理で設定します。
+            <br />
+            サイト管理では、サイト番号・サイト名・サイト指定料金など追加情報のみを扱います。
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -148,7 +168,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
             </Field>
-            <Field label="水場・管理棟まで (m)">
+            <Field label="施設までの距離 (m)">
               <input
                 type="number"
                 min={0}
@@ -162,18 +182,18 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
 
           <div className="grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 sm:grid-cols-3">
             <CheckField label="水道あり" name="waterAvailable" checked={form.waterAvailable} onChange={handleChange} />
-            <CheckField label="電気あり" name="electricAvailable" checked={form.electricAvailable} onChange={handleChange} />
-            <CheckField label="下水あり" name="sewerAvailable" checked={form.sewerAvailable} onChange={handleChange} />
+            <CheckField label="電源あり" name="electricAvailable" checked={form.electricAvailable} onChange={handleChange} />
+            <CheckField label="排水あり" name="sewerAvailable" checked={form.sewerAvailable} onChange={handleChange} />
           </div>
 
-          <Field label="サイト特徴">
+          <Field label="サイト説明">
             <textarea
               name="featureNote"
               value={form.featureNote}
               onChange={handleChange}
               rows={4}
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
-              placeholder="景観、設営のしやすさ、地面の状態などを記入してください。"
+              placeholder="景観や注意点などを入力してください。"
             />
           </Field>
 
@@ -191,7 +211,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
               type="submit"
               className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
             >
-              下書きに反映
+              一覧に反映
             </button>
           </div>
         </form>
@@ -200,10 +220,21 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  children,
+  required = false,
+}: {
+  label: string;
+  children: ReactNode;
+  required?: boolean;
+}) {
   return (
     <div>
-      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</label>
+      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+        {label}
+        {required ? ' *' : ''}
+      </label>
       {children}
     </div>
   );

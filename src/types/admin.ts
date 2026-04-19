@@ -1,3 +1,23 @@
+export type PlanPricingMode = 'per_group' | 'per_person' | 'guest_band';
+
+export type GuestBandPeriodMode = 'months' | 'date_range';
+
+export interface GuestBandPriceTier {
+  id: string;
+  maxGuests: number;
+  price: number;
+}
+
+export interface GuestBandSeasonRule {
+  id: string;
+  label: string;
+  periodMode: GuestBandPeriodMode;
+  months: number[];
+  startDate: string | null;
+  endDate: string | null;
+  bands: GuestBandPriceTier[];
+}
+
 export interface AdminPlan {
   id: string;
   name: string;
@@ -5,9 +25,19 @@ export interface AdminPlan {
   category: string;
   features: string;
   isPublished: boolean;
+  isLodgingTaxApplicable?: boolean;
+  pricingMode: PlanPricingMode;
   basePrice: number;
+  adultPrice: number;
+  childPrice: number;
+  infantPrice: number;
+  guestBandRules: GuestBandSeasonRule[];
   targetSiteIds: string[];
+  applicableOptionIds: string[];
   capacity: number;
+  maxSiteCount: number;
+  maxConcurrentReservations: number;
+  maxGuestsPerReservation: number;
   salesStartDate: string | null;
   salesEndDate: string | null;
   imageUrl: string;

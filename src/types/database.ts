@@ -313,11 +313,11 @@ export type Database = {
         }
         Relationships: []
       }
-      guest_reservations: {
-        Row: {
-          adults: number
-          agreed_cancellation: boolean | null
-          agreed_sns: boolean | null
+        guest_reservations: {
+          Row: {
+            adults: number
+            agreed_cancellation: boolean | null
+            agreed_sns: boolean | null
           agreed_terms: boolean | null
           campground_name: string | null
           cars: number
@@ -331,10 +331,14 @@ export type Database = {
           infants: number
           nights: number
           options_json: Json | null
-          payment_method: Database["public"]["Enums"]["payment_method"] | null
-          payment_status: Database["public"]["Enums"]["payment_status"] | null
-          pets: number
-          qr_token: string
+            payment_method: Database["public"]["Enums"]["payment_method"] | null
+            payment_status: Database["public"]["Enums"]["payment_status"] | null
+            pets: number
+            plan_id: string | null
+            pricing_breakdown: Json | null
+            qr_token: string
+            reserved_site_count: number | null
+            selected_site_numbers: Json | null
           site_name: string | null
           site_number: string | null
           site_type: Database["public"]["Enums"]["site_type"] | null
@@ -367,11 +371,15 @@ export type Database = {
           id?: string
           infants?: number
           nights?: number
-          options_json?: Json | null
-          payment_method?: Database["public"]["Enums"]["payment_method"] | null
-          payment_status?: Database["public"]["Enums"]["payment_status"] | null
-          pets?: number
-          qr_token: string
+            options_json?: Json | null
+            payment_method?: Database["public"]["Enums"]["payment_method"] | null
+            payment_status?: Database["public"]["Enums"]["payment_status"] | null
+            pets?: number
+            plan_id?: string | null
+            pricing_breakdown?: Json | null
+            qr_token: string
+            reserved_site_count?: number | null
+            selected_site_numbers?: Json | null
           site_name?: string | null
           site_number?: string | null
           site_type?: Database["public"]["Enums"]["site_type"] | null
@@ -404,11 +412,15 @@ export type Database = {
           id?: string
           infants?: number
           nights?: number
-          options_json?: Json | null
-          payment_method?: Database["public"]["Enums"]["payment_method"] | null
-          payment_status?: Database["public"]["Enums"]["payment_status"] | null
-          pets?: number
-          qr_token?: string
+            options_json?: Json | null
+            payment_method?: Database["public"]["Enums"]["payment_method"] | null
+            payment_status?: Database["public"]["Enums"]["payment_status"] | null
+            pets?: number
+            plan_id?: string | null
+            pricing_breakdown?: Json | null
+            qr_token?: string
+            reserved_site_count?: number | null
+            selected_site_numbers?: Json | null
           site_name?: string | null
           site_number?: string | null
           site_type?: Database["public"]["Enums"]["site_type"] | null
@@ -728,42 +740,105 @@ export type Database = {
           },
         ]
       }
-      plans: {
+      plan_options: {
         Row: {
-          base_price: number
-          capacity: number
+          option_id: string
+          plan_id: string
+        }
+        Insert: {
+          option_id: string
+          plan_id: string
+        }
+        Update: {
+          option_id?: string
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_options_option_id_fkey"
+            columns: ["option_id"]
+            isOneToOne: false
+            referencedRelation: "options"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_options_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+        plans: {
+          Row: {
+            adult_price: number
+            base_price: number
+            capacity: number
+            category: string | null
+            child_price: number
           created_at: string
           description: string | null
-          id: string
-          image_url: string | null
-          is_published: boolean | null
+            features: string | null
+            guest_band_rules: Json | null
+            id: string
+            image_url: string | null
+            infant_price: number
+            is_published: boolean | null
+            is_lodging_tax_applicable: boolean | null
+            max_concurrent_reservations: number | null
+            max_guests_per_booking: number | null
+            max_site_count: number | null
           name: string
+          pricing_mode: string
           sales_end_date: string | null
           sales_start_date: string | null
           updated_at: string
         }
         Insert: {
+          adult_price?: number
           base_price: number
           capacity?: number
+          category?: string | null
+          child_price?: number
           created_at?: string
           description?: string | null
-          id?: string
-          image_url?: string | null
-          is_published?: boolean | null
+            features?: string | null
+            guest_band_rules?: Json | null
+            id?: string
+            image_url?: string | null
+            infant_price?: number
+            is_published?: boolean | null
+            is_lodging_tax_applicable?: boolean | null
+            max_concurrent_reservations?: number | null
+            max_guests_per_booking?: number | null
+            max_site_count?: number | null
           name: string
+          pricing_mode?: string
           sales_end_date?: string | null
           sales_start_date?: string | null
           updated_at?: string
         }
         Update: {
+          adult_price?: number
           base_price?: number
           capacity?: number
+          category?: string | null
+          child_price?: number
           created_at?: string
           description?: string | null
-          id?: string
-          image_url?: string | null
-          is_published?: boolean | null
+            features?: string | null
+            guest_band_rules?: Json | null
+            id?: string
+            image_url?: string | null
+            infant_price?: number
+            is_published?: boolean | null
+            is_lodging_tax_applicable?: boolean | null
+            max_concurrent_reservations?: number | null
+            max_guests_per_booking?: number | null
+            max_site_count?: number | null
           name?: string
+          pricing_mode?: string
           sales_end_date?: string | null
           sales_start_date?: string | null
           updated_at?: string

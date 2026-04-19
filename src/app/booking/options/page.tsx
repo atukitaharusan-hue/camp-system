@@ -3,32 +3,36 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { OptionItem, OptionSelection, OptionsPayload, BookingContext, STORAGE_KEY_OPTIONS_PAYLOAD } from "@/types/options";
-import { fetchOptions } from '@/lib/admin/fetchData';
+import {
+  OptionItem,
+  OptionSelection,
+  OptionsPayload,
+  BookingContext,
+  STORAGE_KEY_OPTIONS_PAYLOAD,
+} from "@/types/options";
+import { fetchOptions } from "@/lib/admin/fetchData";
+import { calculatePlanAccommodationAmount } from "@/lib/pricing";
+import { getSiteSelectionLabel } from "@/lib/siteSelectionLabel";
 import { useBookingDraftStore } from "@/stores/bookingDraftStore";
 import BookingSummaryBar from "@/components/booking/BookingSummaryBar";
 import RentalOptionCard from "@/components/booking/RentalOptionCard";
 import EventOptionCard from "@/components/booking/EventOptionCard";
 import SelectedOptionsSummary from "@/components/booking/SelectedOptionsSummary";
 
-// --- 小計計算ヘルパー ---
-
-function calcSubtotal(option: OptionItem, sel: OptionSelection): number {
+function calcSubtotal(option: OptionItem, selection: OptionSelection): number {
   switch (option.priceType) {
     case "per_day":
-      return option.price * sel.quantity * sel.days;
+      return option.price * selection.quantity * selection.days;
     case "per_person":
-      return option.price * sel.people;
+      return option.price * selection.people;
     case "per_unit":
-      return option.price * sel.quantity;
+      return option.price * selection.quantity;
     case "fixed":
-      return sel.quantity > 0 ? option.price : 0;
+      return selection.quantity > 0 ? option.price : 0;
     default:
       return 0;
   }
 }
-
-// --- デフォルトの selection を生成 ---
 
 function defaultSelection(optionId: string, nights: number): OptionSelection {
   return { optionId, quantity: 0, days: nights, people: 0, subtotal: 0 };
@@ -36,13 +40,34 @@ function defaultSelection(optionId: string, nights: number): OptionSelection {
 
 export default function OptionsPage() {
   const router = useRouter();
-  const stay = useBookingDraftStore((s) => s.stay);
-  const site = useBookingDraftStore((s) => s.site);
-  const setOptions = useBookingDraftStore((s) => s.setOptions);
+  const stay = useBookingDraftStore((state) => state.stay);
+  const plan = useBookingDraftStore((state) => state.plan);
+  const site = useBookingDraftStore((state) => state.site);
+  const setOptions = useBookingDraftStore((state) => state.setOptions);
 
-  // ガード: 宿泊日未入力 → TOP、サイト未選択 → サイト選択
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
   const hasSite = !!site.siteId;
+  const accommodationAmount =
+    plan.minorPlanId
+      ? calculatePlanAccommodationAmount(
+          {
+            pricingMode: plan.pricingMode,
+            basePrice: plan.basePrice,
+            adultPrice: plan.adultPrice,
+            childPrice: plan.childPrice,
+            infantPrice: plan.infantPrice,
+            guestBandRules: plan.guestBandRules,
+          },
+          {
+            adults: stay.adults,
+            children: stay.children,
+            infants: stay.infants,
+          },
+          {
+            checkInDate: stay.checkIn,
+          },
+        )
+      : site.sitePrice ?? 0;
 
   useEffect(() => {
     if (!hasStay) {
@@ -50,110 +75,151 @@ export default function OptionsPage() {
     } else if (!hasSite) {
       router.replace("/booking/sites");
     }
-  }, [hasStay, hasSite, router]);
+  }, [hasSite, hasStay, router]);
 
   const booking: BookingContext = useMemo(
     () => ({
       checkInDate: stay.checkIn ?? "",
       checkOutDate: stay.checkOut ?? "",
       nights: stay.nights || 0,
-      guests: stay.adults + stay.children || 0,
+      guests: stay.adults + stay.children + stay.infants || 0,
+      adults: stay.adults,
+      children: stay.children,
+      infants: stay.infants,
+      planPricingMode: plan.pricingMode,
+      planBasePrice: plan.basePrice ?? 0,
+      planAdultPrice: plan.adultPrice ?? 0,
+      planChildPrice: plan.childPrice ?? 0,
+      planInfantPrice: plan.infantPrice ?? 0,
+      planGuestBandRules: plan.guestBandRules ?? [],
+      requestedSiteCount: plan.requestedSiteCount ?? 1,
       siteId: site.siteId ?? "",
-      siteNumber: site.siteNumber ?? "未選択",
-      siteName: site.siteName ?? "未選択",
-      sitePrice: site.sitePrice ?? 0,
+      siteNumber: site.siteNumber ?? "",
+      siteName: site.siteName ?? "",
+      sitePrice: accommodationAmount,
       designationFee: site.designationFee ?? 0,
       areaName: site.areaName ?? "",
       subAreaName: site.subAreaName ?? "",
     }),
-    [stay, site]
+    [accommodationAmount, plan.adultPrice, plan.basePrice, plan.childPrice, plan.guestBandRules, plan.infantPrice, plan.pricingMode, plan.requestedSiteCount, site, stay],
   );
 
   const [optionsSource, setOptionsSource] = useState<OptionItem[]>([]);
 
   useEffect(() => {
-    fetchOptions().then(setOptionsSource);
-  }, []);
+    let active = true;
 
-  const options = optionsSource.filter((o) => o.isActive);
+    if (!plan.minorPlanId) {
+      setOptionsSource([]);
+      return () => {
+        active = false;
+      };
+    }
 
+    fetchOptions(plan.minorPlanId).then((items) => {
+      if (!active) return;
+      setOptionsSource(items);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [plan.minorPlanId]);
+
+  const options = useMemo(
+    () => optionsSource.filter((option) => option.isActive),
+    [optionsSource],
+  );
   const rentalOptions = useMemo(
-    () => options.filter((o) => o.category === "rental"),
-    [options]
+    () => options.filter((option) => option.category === "rental"),
+    [options],
   );
   const eventOptions = useMemo(
-    () => options.filter((o) => o.category === "event"),
-    [options]
+    () => options.filter((option) => option.category === "event"),
+    [options],
   );
   const optionMap = useMemo(
-    () => new Map(options.map((o) => [o.id, o])),
-    [options]
+    () => new Map(options.map((option) => [option.id, option])),
+    [options],
   );
 
-  // --- 選択状態 ---
   const [selections, setSelections] = useState<Map<string, OptionSelection>>(
-    () => new Map()
+    () => new Map(),
   );
 
-  /** selection を更新して小計を再計算するヘルパー */
+  useEffect(() => {
+    setSelections((previous) => {
+      if (previous.size === 0) return previous;
+
+      const availableIds = new Set(options.map((option) => option.id));
+      const next = new Map<string, OptionSelection>();
+
+      previous.forEach((selection, optionId) => {
+        if (availableIds.has(optionId)) {
+          next.set(optionId, selection);
+        }
+      });
+
+      return next;
+    });
+  }, [options]);
+
   const updateSelection = useCallback(
     (
       optionId: string,
-      updater: (prev: OptionSelection) => Partial<OptionSelection>
+      updater: (previous: OptionSelection) => Partial<OptionSelection>,
     ) => {
-      setSelections((prev) => {
-        const next = new Map(prev);
+      setSelections((previous) => {
+        const next = new Map(previous);
         const current =
           next.get(optionId) ?? defaultSelection(optionId, booking.nights);
         const updated = { ...current, ...updater(current) };
-        const opt = optionMap.get(optionId);
-        updated.subtotal = opt ? calcSubtotal(opt, updated) : 0;
+        const option = optionMap.get(optionId);
+        updated.subtotal = option ? calcSubtotal(option, updated) : 0;
         next.set(optionId, updated);
         return next;
       });
     },
-    [booking.nights, optionMap]
+    [booking.nights, optionMap],
   );
-
-  // --- イベントハンドラ ---
 
   const handleQuantityChange = useCallback(
     (optionId: string, quantity: number) => {
-      updateSelection(optionId, (prev) => ({
+      updateSelection(optionId, (previous) => ({
         quantity,
-        days: quantity === 0 ? booking.nights : prev.days,
+        days: quantity === 0 ? booking.nights : previous.days,
       }));
     },
-    [updateSelection, booking.nights]
+    [booking.nights, updateSelection],
   );
 
   const handleDaysChange = useCallback(
     (optionId: string, days: number) => {
       updateSelection(optionId, () => ({ days }));
     },
-    [updateSelection]
+    [updateSelection],
   );
 
   const handlePeopleChange = useCallback(
     (optionId: string, people: number) => {
       updateSelection(optionId, () => ({ people }));
     },
-    [updateSelection]
+    [updateSelection],
   );
 
-  // --- 集計 ---
-
   const activeSelections = useMemo(
-    () => Array.from(selections.values()).filter((s) => s.subtotal > 0),
-    [selections]
+    () =>
+      Array.from(selections.values()).filter(
+        (selection) => selection.subtotal > 0,
+      ),
+    [selections],
   );
 
   const totalAmount = useMemo(
-    () => activeSelections.reduce((sum, s) => sum + s.subtotal, 0),
-    [activeSelections]
+    () =>
+      activeSelections.reduce((sum, selection) => sum + selection.subtotal, 0),
+    [activeSelections],
   );
-
-  // --- 確認画面への payload 生成 ---
 
   const buildPayload = (): OptionsPayload => ({
     booking,
@@ -165,82 +231,97 @@ export default function OptionsPage() {
     const payload = buildPayload();
     sessionStorage.setItem(STORAGE_KEY_OPTIONS_PAYLOAD, JSON.stringify(payload));
 
-    // Zustand store にもオプション選択を保存（confirmation ページで参照）
     const rentals = activeSelections
-      .filter((s) => optionMap.get(s.optionId)?.category === "rental")
-      .map((s) => ({ optionId: s.optionId, quantity: s.quantity, days: s.days, subtotal: s.subtotal }));
-    const events = activeSelections
-      .filter((s) => optionMap.get(s.optionId)?.category === "event")
-      .map((s) => ({ optionId: s.optionId, people: s.people, subtotal: s.subtotal }));
-    setOptions({ rentals, events });
+      .filter(
+        (selection) => optionMap.get(selection.optionId)?.category === "rental",
+      )
+      .map((selection) => ({
+        optionId: selection.optionId,
+        quantity: selection.quantity,
+        days: selection.days,
+        subtotal: selection.subtotal,
+      }));
 
+    const events = activeSelections
+      .filter(
+        (selection) => optionMap.get(selection.optionId)?.category === "event",
+      )
+      .map((selection) => ({
+        optionId: selection.optionId,
+        people: selection.people,
+        subtotal: selection.subtotal,
+      }));
+
+    setOptions({ rentals, events });
     router.push("/booking/user-info");
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-amber-50/30">
-      <div className="max-w-lg mx-auto px-4 py-6 pb-56">
-        {/* ヘッダー */}
-        <div className="text-center mb-4">
-          <p className="text-xs text-gray-400 tracking-wide mb-1">
-            STEP 3 / 4
-          </p>
-          <h1 className="text-xl font-bold text-gray-800">
-            オプション・体験を選ぶ
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            必要なものだけ追加できます。スキップもOK！
+      <div className="mx-auto max-w-lg px-4 py-6 pb-56">
+        <div className="mb-4 text-center">
+          <p className="mb-1 text-xs tracking-wide text-gray-400">STEP 3 / 4</p>
+          <h1 className="text-xl font-bold text-gray-800">オプションを選ぶ</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            選択中のプランに適用されているオプションのみ表示しています。
           </p>
         </div>
 
-        {/* 予約サマリー */}
         <BookingSummaryBar booking={booking} />
 
-        {/* レンタル / オプション */}
         <section className="mb-8">
           <div className="mb-3">
             <h2 className="text-base font-bold text-gray-800">
-              レンタル / オプション
+              レンタルオプション
             </h2>
           </div>
-          <div className="space-y-3">
-            {rentalOptions.map((opt) => (
-              <RentalOptionCard
-                key={opt.id}
-                option={opt}
-                selection={selections.get(opt.id)}
-                nights={booking.nights}
-                onChangeQuantity={handleQuantityChange}
-                onChangeDays={handleDaysChange}
-              />
-            ))}
-          </div>
+          {rentalOptions.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-white/80 px-4 py-5 text-sm text-gray-500">
+              このプランで選択できるレンタルオプションはありません。
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {rentalOptions.map((option) => (
+                <RentalOptionCard
+                  key={option.id}
+                  option={option}
+                  selection={selections.get(option.id)}
+                  nights={booking.nights}
+                  onChangeQuantity={handleQuantityChange}
+                  onChangeDays={handleDaysChange}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
-        {/* イベント / 体験 */}
         <section className="mb-8">
           <div className="mb-3">
             <h2 className="text-base font-bold text-gray-800">
-              イベント / 体験
+              イベントオプション
             </h2>
           </div>
-          <div className="space-y-3">
-            {eventOptions.map((opt) => (
-              <EventOptionCard
-                key={opt.id}
-                option={opt}
-                selection={selections.get(opt.id)}
-                onChangePeople={handlePeopleChange}
-              />
-            ))}
-          </div>
+          {eventOptions.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-white/80 px-4 py-5 text-sm text-gray-500">
+              このプランで選択できるイベントオプションはありません。
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {eventOptions.map((option) => (
+                <EventOptionCard
+                  key={option.id}
+                  option={option}
+                  selection={selections.get(option.id)}
+                  onChangePeople={handlePeopleChange}
+                />
+              ))}
+            </div>
+          )}
         </section>
       </div>
 
-      {/* ===== フッター固定エリア ===== */}
-      <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-gray-200 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
-        <div className="max-w-lg mx-auto px-4 py-3">
-          {/* 選択内容まとめ */}
+      <div className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white/95 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] backdrop-blur">
+        <div className="mx-auto max-w-lg px-4 py-3">
           {activeSelections.length > 0 && (
             <div className="mb-3 max-h-36 overflow-y-auto">
               <SelectedOptionsSummary
@@ -252,25 +333,24 @@ export default function OptionsPage() {
           )}
 
           {activeSelections.length === 0 && (
-            <p className="text-center text-sm text-gray-400 mb-3">
-              オプションなしでも次へ進めます
+            <p className="mb-3 text-center text-sm text-gray-400">
+              オプションなしでも次へ進めます。
             </p>
           )}
 
-          {/* ナビゲーションボタン */}
           <div className="flex gap-3">
             <Link
               href="/booking/sites"
-              className="flex-1 text-center py-3 rounded-xl border border-gray-300 text-gray-600 font-medium hover:bg-gray-50 transition-colors text-sm"
+              className="flex-1 rounded-xl border border-gray-300 py-3 text-center text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
-              ← 前へ
+              戻る
             </Link>
             <button
               type="button"
               onClick={handleNext}
-              className="flex-[2] py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors text-sm shadow-sm"
+              className="flex-[2] rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
             >
-              次へ → 確認画面
+              次へ: お客様情報
             </button>
           </div>
         </div>

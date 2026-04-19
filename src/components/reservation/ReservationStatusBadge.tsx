@@ -27,7 +27,7 @@ const statusConfig: Record<
     text: 'text-blue-800',
   },
   completed: {
-    label: 'ご利用済み',
+    label: '利用済み',
     bg: 'bg-gray-100',
     text: 'text-gray-600',
   },
@@ -43,8 +43,6 @@ export default function ReservationStatusBadge({
   checkedInAt,
 }: ReservationStatusBadgeProps) {
   const config = statusConfig[status];
-
-  // confirmed でも checkedInAt がある場合はチェックイン済みとして表示
   const displayConfig =
     status === 'confirmed' && checkedInAt ? statusConfig.checked_in : config;
 

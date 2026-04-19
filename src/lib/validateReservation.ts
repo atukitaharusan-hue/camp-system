@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
+import { getStayDates, validateInventory } from '@/lib/bookingAvailability';
 
 export type ReservationSource = 'web' | 'admin' | 'import' | 'admin_update';
 
@@ -10,6 +11,8 @@ export interface ReservationValidationInput {
   guests: number;
   source: ReservationSource;
   planId?: string | null;
+  requestedSiteCount?: number;
+  selectedSiteNumbers?: string[];
   excludeReservationId?: string;
 }
 
@@ -25,18 +28,6 @@ export interface ValidationResult {
   nights: number;
 }
 
-async function getRuntimePlans() {
-  return fetchPlans();
-}
-
-async function getRuntimeSites() {
-  return fetchSites();
-}
-
-async function getRuntimeSalesRule() {
-  return fetchSalesRule();
-}
-
 function toDate(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00Z`);
 }
@@ -48,9 +39,7 @@ export function calculateNights(checkIn: string, checkOut: string): number {
 export function deriveCheckOutDate(checkIn: string, nights: number): string {
   const date = toDate(checkIn);
   date.setUTCDate(date.getUTCDate() + nights);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(
-    date.getUTCDate(),
-  ).padStart(2, '0')}`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 export function parseSiteNumber(raw: string) {
@@ -59,23 +48,6 @@ export function parseSiteNumber(raw: string) {
     return { siteNumber: trimmed.slice(1), designationRequested: true };
   }
   return { siteNumber: trimmed, designationRequested: false };
-}
-
-function getStayDates(checkIn: string, checkOut: string) {
-  const dates: string[] = [];
-  const cursor = toDate(checkIn);
-  const end = toDate(checkOut);
-
-  while (cursor < end) {
-    dates.push(
-      `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}-${String(
-        cursor.getUTCDate(),
-      ).padStart(2, '0')}`,
-    );
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return dates;
 }
 
 function buildError(code: string, message: string, adminMessage = message): ValidationError {
@@ -89,9 +61,7 @@ function getRangeDates(startDate: string, endDate: string) {
 
   while (cursor <= end) {
     dates.push(
-      `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}-${String(
-        cursor.getUTCDate(),
-      ).padStart(2, '0')}`,
+      `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}-${String(cursor.getUTCDate()).padStart(2, '0')}`,
     );
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
@@ -126,19 +96,15 @@ async function checkOverlap(
       if (source === 'admin' || source === 'admin_update' || source === 'import') {
         return null;
       }
-      return buildError(
-        'OVERLAP_CHECK_ERROR',
-        '重複チェック中にエラーが発生しました。',
-        `重複チェックエラー: ${error.message}`,
-      );
+      return buildError('OVERLAP_CHECK_ERROR', '重複予約の確認に失敗しました。', `重複確認エラー: ${error.message}`);
     }
 
     if (data && data.length > 0) {
       const existing = data[0];
       return buildError(
         'DUPLICATE_RESERVATION',
-        '同じサイト・同じ日程の予約がすでに入っています。別の日程を選んでください。',
-        `サイト ${siteNumber} は ${existing.check_in_date} から ${existing.check_out_date} に既存予約があります。`,
+        '指定したサイトは選択日程で予約済みです。',
+        `サイト ${siteNumber} は ${existing.check_in_date} - ${existing.check_out_date} に予約済みです。`,
       );
     }
 
@@ -148,28 +114,22 @@ async function checkOverlap(
       return null;
     }
     const message = error instanceof Error ? error.message : 'unknown error';
-    return buildError(
-      'OVERLAP_CHECK_ERROR',
-      '重複チェック中に通信エラーが発生しました。',
-      `重複チェックエラー: ${message}`,
-    );
+    return buildError('OVERLAP_CHECK_ERROR', '重複予約の確認に失敗しました。', `重複確認エラー: ${message}`);
   }
 }
 
 export async function validateReservation(input: ReservationValidationInput): Promise<ValidationResult> {
   const errors: ValidationError[] = [];
   const [runtimeSites, runtimePlans, runtimeSalesRule] = await Promise.all([
-    getRuntimeSites(),
-    getRuntimePlans(),
-    getRuntimeSalesRule(),
+    fetchSites(),
+    fetchPlans(),
+    fetchSalesRule(),
   ]);
 
   if (!input.checkInDate || !input.checkOutDate || input.checkOutDate <= input.checkInDate) {
     return {
       valid: false,
-      errors: [
-        buildError('INVALID_DATE_ORDER', 'チェックアウト日はチェックイン日より後の日付を選択してください。'),
-      ],
+      errors: [buildError('INVALID_DATE_ORDER', 'チェックアウト日はチェックイン日より後の日付を選択してください。')],
       nights: 0,
     };
   }
@@ -184,7 +144,7 @@ export async function validateReservation(input: ReservationValidationInput): Pr
 
   const blockedDates = stayDates.filter((date) => runtimeSalesRule.closedDates.includes(date));
   if (blockedDates.length > 0) {
-    errors.push(buildError('CLOSED_DATE', `受付停止日に重なっています: ${blockedDates.join(', ')}`));
+    errors.push(buildError('CLOSED_DATE', `休業日のため予約できません: ${blockedDates.join(', ')}`));
   }
 
   const blockedRanges = runtimeSalesRule.closedDateRanges.filter((range) =>
@@ -193,77 +153,86 @@ export async function validateReservation(input: ReservationValidationInput): Pr
   if (blockedRanges.length > 0) {
     errors.push(
       buildError(
-        'CLOSED_DATE',
-        '受付停止期間に重なっています。',
-        `停止期間: ${blockedRanges.map((range) => `${range.startDate} - ${range.endDate} (${range.reason})`).join(', ')}`,
+        'CLOSED_RANGE',
+        '休業期間が含まれているため予約できません。',
+        blockedRanges.map((range) => `${range.startDate} - ${range.endDate} (${range.reason || 'closed'})`).join(', '),
       ),
     );
   }
 
-  if (!input.siteNumber.trim()) {
+  if (!input.siteNumber.trim() && !input.planId) {
     return { valid: errors.length === 0, errors, nights };
   }
 
-  const site = runtimeSites.find((item) => item.siteNumber === input.siteNumber);
-  if (!site) {
+  const normalizedSiteNumber = input.siteNumber.trim();
+  const site = normalizedSiteNumber ? runtimeSites.find((item) => item.siteNumber === normalizedSiteNumber) : null;
+  if (normalizedSiteNumber && !site) {
     return {
       valid: false,
-      errors: [buildError('SITE_NOT_FOUND', '選択されたサイトが見つかりません。')],
+      errors: [buildError('SITE_NOT_FOUND', '指定したサイトが見つかりません。')],
       nights,
     };
   }
 
-  if (input.source === 'web' && !site.isPublished) {
-    errors.push(buildError('SITE_NOT_PUBLISHED', 'このサイトは現在公開されていません。'));
+  if (site && input.source === 'web' && !site.isPublished) {
+    errors.push(buildError('SITE_NOT_PUBLISHED', '公開されていないサイトです。'));
   }
 
-  if (site.status !== 'active') {
-    errors.push(buildError('SITE_UNAVAILABLE', 'このサイトは現在予約できません。'));
+  if (site && site.status !== 'active') {
+    errors.push(buildError('SITE_UNAVAILABLE', 'このサイトは現在利用できません。'));
   }
 
-  if (input.guests > site.capacity) {
-    errors.push(buildError('CAPACITY_EXCEEDED', `このサイトの定員は${site.capacity}名です。`));
+  if (site && input.guests > site.capacity) {
+    errors.push(buildError('CAPACITY_EXCEEDED', `このサイトの定員は ${site.capacity} 名です。`));
   }
 
   if (input.source === 'web' && input.planId) {
     const plan = runtimePlans.find((item) => item.id === input.planId);
     if (plan && !plan.isPublished) {
-      errors.push(buildError('PLAN_NOT_PUBLISHED', 'このプランは現在公開されていません。'));
+      errors.push(buildError('PLAN_NOT_PUBLISHED', '公開されていないプランです。'));
     }
   }
 
-  const matchingSiteClosures = runtimeSalesRule.siteClosures.filter(
-    (item) => item.siteNumber === input.siteNumber,
-  );
-  const blockedSiteClosures = matchingSiteClosures.filter((closure) =>
-    closure.dates.some((date) => stayDates.includes(date)),
-  );
-  if (blockedSiteClosures.length > 0) {
-    errors.push(
-      buildError(
-        'SITE_CLOSED_DATE',
-        `${input.siteNumber} は停止日に設定されています。`,
-        blockedSiteClosures
-          .map((closure) => `${closure.siteNumber}: ${closure.startDate} - ${closure.endDate} / ${closure.reason}`)
-          .join(', '),
-      ),
+  if (normalizedSiteNumber) {
+    const matchingSiteClosures = runtimeSalesRule.siteClosures.filter((item) => item.siteNumber === normalizedSiteNumber);
+    const blockedSiteClosures = matchingSiteClosures.filter((closure) => closure.dates.some((date) => stayDates.includes(date)));
+    if (blockedSiteClosures.length > 0) {
+      errors.push(
+        buildError(
+          'SITE_CLOSED_DATE',
+          `${normalizedSiteNumber} は選択日程では利用できません。`,
+          blockedSiteClosures.map((closure) => `${closure.startDate} - ${closure.endDate} / ${closure.reason || 'closed'}`).join(', '),
+        ),
+      );
+    }
+  }
+
+  if (input.planId) {
+    const inventory = await validateInventory({
+      planId: input.planId,
+      checkInDate: input.checkInDate,
+      checkOutDate: input.checkOutDate,
+      requestedSiteCount: input.requestedSiteCount ?? 1,
+      guests: input.guests,
+      selectedSiteNumbers: input.selectedSiteNumbers ?? (normalizedSiteNumber ? [normalizedSiteNumber] : []),
+      excludeReservationId: input.excludeReservationId,
+    });
+
+    if (!inventory.valid) {
+      errors.push(...inventory.errors.map((message) => buildError('PLAN_INVENTORY_EXCEEDED', message, message)));
+    }
+  } else if (normalizedSiteNumber) {
+    const overlapError = await checkOverlap(
+      normalizedSiteNumber,
+      input.checkInDate,
+      input.checkOutDate,
+      input.source,
+      input.excludeReservationId,
     );
-  }
 
-  if (errors.length > 0) {
-    return { valid: false, errors, nights };
-  }
-
-  const overlapError = await checkOverlap(
-    input.siteNumber,
-    input.checkInDate,
-    input.checkOutDate,
-    input.source,
-    input.excludeReservationId,
-  );
-
-  if (overlapError) {
-    errors.push(overlapError);
+    if (overlapError) {
+      errors.push(overlapError);
+    }
   }
 
   return {

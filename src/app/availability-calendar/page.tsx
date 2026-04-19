@@ -1,45 +1,60 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchPlans, fetchSites } from '@/lib/admin/fetchData';
-import { fetchReservations } from '@/lib/admin/fetchReservations';
-import { buildAvailabilityCells, getCurrentMonthKey, getMonthDates, getMonthLabel } from '@/lib/admin/availabilityCalendar';
-import type { Database } from '@/types/database';
-import type { AdminPlan, AdminSite } from '@/types/admin';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchPlans } from '@/lib/admin/fetchData';
+import { getPlanAvailabilityDays } from '@/lib/bookingAvailability';
+import type { AdminPlan } from '@/types/admin';
 
-type ReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
+function getCurrentMonthKey(baseDate = new Date()) {
+  return `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getMonthDates(monthKey: string) {
+  const start = new Date(`${monthKey}-01T00:00:00`);
+  const month = start.getMonth();
+  const dates: string[] = [];
+  const cursor = new Date(start);
+
+  while (cursor.getMonth() === month) {
+    dates.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
 
 export default function PublicAvailabilityCalendarPage() {
-  const [reservations, setReservations] = useState<ReservationRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [monthKey, setMonthKey] = useState(getCurrentMonthKey());
   const [plans, setPlans] = useState<AdminPlan[]>([]);
-  const [sites, setSites] = useState<AdminSite[]>([]);
-
-  const loadReservations = useCallback(async () => {
-    const result = await fetchReservations();
-    if (!result.error) setReservations(result.data);
-    setLoading(false);
-  }, []);
+  const [monthKey, setMonthKey] = useState(getCurrentMonthKey());
+  const [cells, setCells] = useState<Awaited<ReturnType<typeof getPlanAvailabilityDays>>>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const queryMonth = params.get('month');
-    if (queryMonth && /^\d{4}-\d{2}$/.test(queryMonth)) setMonthKey(queryMonth);
+    if (queryMonth && /^\d{4}-\d{2}$/.test(queryMonth)) {
+      setMonthKey(queryMonth);
+    }
+
     fetchPlans().then(setPlans);
-    fetchSites().then(setSites);
-    loadReservations();
-  }, [loadReservations]);
+  }, []);
+
+  useEffect(() => {
+    const dates = getMonthDates(monthKey);
+    setLoading(true);
+    getPlanAvailabilityDays(dates)
+      .then(setCells)
+      .finally(() => setLoading(false));
+  }, [monthKey]);
 
   const dates = useMemo(() => getMonthDates(monthKey), [monthKey]);
-  const cells = useMemo(() => buildAvailabilityCells(reservations, dates, plans, sites), [reservations, dates, plans, sites]);
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">空き状況カレンダー</h1>
-          <p className="mt-2 text-sm text-slate-500">{getMonthLabel(monthKey)} のプラン別空き状況を 〇 / △ / × で確認できます。</p>
+          <p className="mt-2 text-sm text-slate-500">○ / △ / × の表示と残サイト数を同じ在庫ロジックで判定しています。</p>
         </header>
 
         {loading ? (
@@ -61,10 +76,18 @@ export default function PublicAvailabilityCalendarPage() {
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{plan.name}</td>
                     {dates.map((date) => {
                       const cell = cells.find((item) => item.planId === plan.id && item.date === date);
-                      const styles = cell?.mark === '×' ? 'bg-red-100 text-red-700' : cell?.mark === '△' ? 'bg-yellow-100 text-yellow-800' : 'bg-emerald-100 text-emerald-700';
+                      const styles =
+                        cell?.mark === 'full'
+                          ? 'bg-gray-200 text-gray-700'
+                          : cell?.mark === 'triangle'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-700';
+                      const mark = cell?.mark === 'full' ? '×' : cell?.mark === 'triangle' ? '△' : '○';
+
                       return (
                         <td key={date} className="px-3 py-3 text-center">
-                          <div className={`mx-auto w-16 rounded-full px-2 py-2 text-xs font-semibold ${styles}`}>{cell?.mark ?? '〇'}</div>
+                          <div className={`mx-auto w-16 rounded-full px-2 py-2 text-xs font-semibold ${styles}`}>{mark}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">残 {cell?.availableSites ?? 0}</div>
                         </td>
                       );
                     })}

@@ -1,5 +1,6 @@
 import type { BookingDraft } from '@/stores/bookingDraftStore';
 import type { Database } from '@/types/database';
+import type { ReservationPricingBreakdown } from '@/types/pricing';
 
 type GuestReservationInsert = Database['public']['Tables']['guest_reservations']['Insert'];
 type PaymentMethod = Database['public']['Enums']['payment_method'];
@@ -56,24 +57,27 @@ function buildOptionsJson(options: BookingDraft['options']) {
   return items;
 }
 
-function buildConsentMemo(policy: BookingDraft['policy']) {
+function buildSpecialRequests(draft: BookingDraft) {
   return [
-    `キャンセルポリシー同意: ${policy.agreedCancellation ? 'あり' : 'なし'}`,
-    `利用規約同意: ${policy.agreedTerms ? 'あり' : 'なし'}`,
-    `SNS・広報同意: ${policy.agreedSns ? 'あり' : 'なし'}`,
-  ].join(' / ');
+    `PLAN_ID: ${draft.plan.minorPlanId ?? ''}`,
+    `REQUESTED_SITE_COUNT: ${draft.plan.requestedSiteCount}`,
+    `SELECTED_SITE_NUMBERS: ${draft.site.selectedSiteNumbers.join(',')}`,
+    `AGREED_CANCELLATION: ${draft.policy.agreedCancellation}`,
+    `AGREED_TERMS: ${draft.policy.agreedTerms}`,
+    `AGREED_SNS: ${draft.policy.agreedSns}`,
+  ].join('\n');
 }
 
 export interface BookingToReservationInput {
   draft: BookingDraft;
   qrToken: string;
-  totalAmount: number;
+  pricingBreakdown: ReservationPricingBreakdown;
 }
 
 export function bookingToReservation({
   draft,
   qrToken,
-  totalAmount,
+  pricingBreakdown,
 }: BookingToReservationInput): GuestReservationInsert {
   const { reservationStatus, paymentStatus } = deriveStatuses(draft.payment.method);
 
@@ -91,18 +95,23 @@ export function bookingToReservation({
     nights: draft.stay.nights,
     adults: draft.stay.adults,
     children: draft.stay.children,
-    guests: draft.stay.adults + draft.stay.children,
+    infants: draft.stay.infants,
+    guests: draft.stay.adults + draft.stay.children + draft.stay.infants,
+    plan_id: draft.plan.minorPlanId,
+    reserved_site_count: draft.plan.requestedSiteCount,
+    selected_site_numbers: draft.site.selectedSiteNumbers,
     site_number: draft.site.siteNumber,
     site_name: draft.site.siteName,
     site_type: 'standard',
-    campground_name: 'キャンプ場 Green Valley',
-    total_amount: totalAmount,
+    campground_name: 'Green Valley',
+    total_amount: pricingBreakdown.totalAmount,
     status: reservationStatus,
     payment_method: toDbPaymentMethod(draft.payment.method),
     payment_status: paymentStatus,
     qr_token: qrToken,
     options_json: buildOptionsJson(draft.options),
-    special_requests: buildConsentMemo(draft.policy),
+    pricing_breakdown: pricingBreakdown as unknown as Database['public']['Tables']['guest_reservations']['Insert']['pricing_breakdown'],
+    special_requests: buildSpecialRequests(draft),
     agreed_cancellation: draft.policy.agreedCancellation,
     agreed_terms: draft.policy.agreedTerms,
     agreed_sns: draft.policy.agreedSns,

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import type { ReservationDetail } from '@/types/reservation';
 import type { Database } from '@/types/database';
 
@@ -14,6 +15,9 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     checkInDate: row.check_in_date,
     checkOutDate: row.check_out_date,
     guests: row.guests,
+    adults: row.adults,
+    children: row.children,
+    infants: row.infants,
     totalAmount: Number(row.total_amount),
     specialRequests: row.special_requests,
     createdAt: row.created_at,
@@ -27,6 +31,7 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     paymentMethod: row.payment_method ?? null,
     paymentStatus: row.payment_status ?? null,
     optionsJson: Array.isArray(row.options_json) ? row.options_json as ReservationDetail['optionsJson'] : null,
+    pricingBreakdown: coerceReservationPricingBreakdown(row.pricing_breakdown),
   };
 }
 

@@ -187,7 +187,7 @@ export default function EditReservationPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <FormField label="大人人数">
+            <FormField label="大人(中学生以上)人数">
             <input
               type="number"
               min={1}
@@ -274,7 +274,7 @@ export default function EditReservationPage() {
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
             >
               <option value="credit_card">クレジットカード</option>
-              <option value="cash">現地払い</option>
+              <option value="cash">現地払い(現金のみ)</option>
               <option value="bank_transfer">銀行振込</option>
             </select>
           </FormField>
