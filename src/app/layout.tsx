@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -6,7 +6,12 @@ export const metadata: Metadata = {
   description: "完全自動化されたキャンプ場予約〜チェックインシステム。LINE連携・QRチェックインで快適なキャンプ体験を提供します。",
   keywords: "キャンプ場,予約,チェックイン,QRコード,自動化",
   authors: [{ name: "Campsite Booking Team" }],
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

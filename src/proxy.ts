@@ -7,7 +7,7 @@ function isPasswordAuthEnabled() {
   return !!process.env.ADMIN_PASSWORD;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // /admin/login は認証不要

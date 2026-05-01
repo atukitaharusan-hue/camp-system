@@ -4,6 +4,27 @@ import { LiffContext, type LiffContextValue } from "@/contexts/LiffContext";
 import type { Liff } from "@line/liff";
 import { useEffect, useState, type ReactNode } from "react";
 
+function isLocalDevLiffProfileEnabled() {
+  if (process.env.NODE_ENV !== "development") return false;
+  if (typeof window === "undefined") return false;
+  const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (!isLocalhost) return false;
+  return (
+    process.env.NEXT_PUBLIC_ENABLE_DEV_LIFF_PROFILE === "true" ||
+    process.env.NEXT_PUBLIC_LINE_LIFF_ID === "dummy_liff_id"
+  );
+}
+
+const devLiffProfile: NonNullable<LiffContextValue["profile"]> = {
+  userId: "dev-local-line-user",
+  displayName: "ローカルテストユーザー",
+  pictureUrl: undefined,
+};
+
+function runAfterEffect(callback: () => void) {
+  queueMicrotask(callback);
+}
+
 export default function LiffApp({ children }: { children: ReactNode }) {
   const [liffObject, setLiffObject] = useState<Liff | null>(null);
   const [liffError, setLiffError] = useState<string | null>(null);
@@ -14,14 +35,22 @@ export default function LiffApp({ children }: { children: ReactNode }) {
     // admin・APIルートではLIFF不要
     const path = window.location.pathname;
     if (path.startsWith("/admin") || path.startsWith("/api")) {
-      setIsReady(true);
+      runAfterEffect(() => setIsReady(true));
+      return;
+    }
+
+    if (isLocalDevLiffProfileEnabled()) {
+      runAfterEffect(() => {
+        setProfile(devLiffProfile);
+        setIsReady(true);
+      });
       return;
     }
 
     // instrumentation-client.ts が設定した global Promise を待つ
     const liffReady = globalThis.__liffReady;
     if (!liffReady) {
-      setIsReady(true);
+      runAfterEffect(() => setIsReady(true));
       return;
     }
 
@@ -52,7 +81,7 @@ export default function LiffApp({ children }: { children: ReactNode }) {
     liff: liffObject,
     liffError,
     isReady,
-    isLoggedIn: liffObject?.isLoggedIn() ?? false,
+    isLoggedIn: Boolean(profile) || (liffObject?.isLoggedIn() ?? false),
     isInClient: liffObject?.isInClient() ?? false,
     profile,
   };

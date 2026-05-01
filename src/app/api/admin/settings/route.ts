@@ -1,0 +1,42 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminRequest } from '@/lib/admin/requestAuth';
+import { supabase } from '@/lib/supabase';
+import type { Database } from '@/types/database';
+
+const ALLOWED_SETTING_KEYS = new Set([
+  'admin_account',
+  'calendar_display_settings',
+  'policy_settings',
+  'pricing_settings',
+  'qr_screen_settings',
+  'site_map_settings',
+]);
+
+export async function POST(request: NextRequest) {
+  const authError = await requireAdminRequest(request);
+  if (authError) return authError;
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const key = typeof body?.key === 'string' ? body.key : '';
+
+  if (!ALLOWED_SETTING_KEYS.has(key)) {
+    return NextResponse.json({ error: '保存できない設定キーです。' }, { status: 400 });
+  }
+
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'value')) {
+    return NextResponse.json({ error: '設定値が不足しています。' }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from('app_settings')
+    .upsert({
+      key,
+      value: body.value as Database['public']['Tables']['app_settings']['Row']['value'],
+    });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

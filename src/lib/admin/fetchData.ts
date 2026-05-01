@@ -478,7 +478,7 @@ export async function fetchOptions(planId?: string): Promise<OptionItem[]> {
   const cached = readAdminCache<OptionItem[]>(cacheKey);
   if (cached) return cached;
 
-  let rows: any[] = [];
+  let rows: Database['public']['Tables']['options']['Row'][] = [];
 
   if (planId) {
     const { data: planOptionRows, error: planOptionError } = await supabase
@@ -597,16 +597,23 @@ async function fetchSetting<T>(key: string): Promise<T | null> {
     .from('app_settings')
     .select('value')
     .eq('key', key)
-    .single();
+    .maybeSingle();
   if (error) { console.error(`fetchSetting(${key}) error:`, error); return null; }
-  return data.value as T;
+  return data?.value as T | null;
 }
 
 async function saveSetting(key: string, value: unknown): Promise<void> {
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert({ key, value: value as Database['public']['Tables']['app_settings']['Row']['value'] });
-  if (error) throw error;
+  const response = await fetch('/api/admin/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const message = typeof payload.error === 'string' ? payload.error : '設定の保存に失敗しました。';
+    throw new Error(message);
+  }
 }
 
 // --- Policy ---

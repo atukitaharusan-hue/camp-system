@@ -10,6 +10,7 @@ import type {
 } from '@/types/import';
 import type { Json } from '@/types/database';
 import { logAdminAction } from '@/lib/admin/actionLog';
+import { requireAdminRequest } from '@/lib/admin/requestAuth';
 
 function buildSpecialRequests(row: ImportParsedRow) {
   const lines = [
@@ -36,6 +37,9 @@ function buildSpecialRequests(row: ImportParsedRow) {
 }
 
 export async function POST(request: NextRequest) {
+  const authError = await requireAdminRequest(request);
+  if (authError) return authError;
+
   try {
     const body = await request.json();
     const rows: ImportParsedRow[] = body.rows;

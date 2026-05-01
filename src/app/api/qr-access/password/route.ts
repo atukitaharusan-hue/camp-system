@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { COOKIE_NAME, verifySessionToken } from '@/lib/admin/session';
+import { requireAdminRequest } from '@/lib/admin/requestAuth';
 import {
   createPasswordSetting,
   fetchQrAccessPasswordSetting,
   saveQrAccessPasswordSetting,
 } from '@/lib/qrAccessServer';
-
-async function isAdminRequest(request: NextRequest) {
-  const adminPassword = process.env.ADMIN_PASSWORD ?? '';
-  if (!adminPassword) return true;
-
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  if (!token) return false;
-  return verifySessionToken(token);
-}
 
 export async function GET() {
   try {
@@ -29,9 +20,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAdminRequest(request))) {
-    return NextResponse.json({ error: '管理画面にログインしてから設定してください。' }, { status: 401 });
-  }
+  const authError = await requireAdminRequest(request);
+  if (authError) return authError;
 
   const body = await request.json().catch(() => null);
   const password = typeof body?.password === 'string' ? body.password.trim() : '';
