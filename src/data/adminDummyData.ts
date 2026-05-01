@@ -166,7 +166,6 @@ export const dummySalesRule: SalesRule = {
 export const dummyAdminAccount: AdminAccountProfile = {
   userName: 'キャンプ場管理者',
   email: 'owner@example.com',
-  password: '0221-owner',
   allowConcurrentLogin: true,
   isInitialized: false,
 };

@@ -558,7 +558,6 @@ export async function fetchCalendarDisplaySettings(): Promise<CalendarDisplaySet
 const defaultAdminAccount: AdminAccountProfile = {
   userName: '',
   email: '',
-  password: '',
   allowConcurrentLogin: false,
   isInitialized: false,
 };
@@ -567,11 +566,24 @@ export async function fetchAdminAccount(): Promise<AdminAccountProfile> {
   const response = await fetch('/api/admin/settings?key=admin_account');
   if (!response.ok) return defaultAdminAccount;
   const payload = await response.json().catch(() => ({}));
-  return (payload.value as AdminAccountProfile | null) ?? defaultAdminAccount;
+  const value = (payload.value as Partial<AdminAccountProfile> | null) ?? null;
+  return {
+    ...defaultAdminAccount,
+    userName: typeof value?.userName === 'string' ? value.userName : defaultAdminAccount.userName,
+    email: typeof value?.email === 'string' ? value.email : defaultAdminAccount.email,
+    allowConcurrentLogin: typeof value?.allowConcurrentLogin === 'boolean' ? value.allowConcurrentLogin : defaultAdminAccount.allowConcurrentLogin,
+    isInitialized: typeof value?.isInitialized === 'boolean' ? value.isInitialized : defaultAdminAccount.isInitialized,
+  };
 }
 
 export async function saveAdminAccount(account: AdminAccountProfile): Promise<void> {
-  return saveSetting('admin_account', account);
+  const sanitizedAccount: AdminAccountProfile = {
+    userName: account.userName,
+    email: account.email,
+    allowConcurrentLogin: account.allowConcurrentLogin,
+    isInitialized: account.isInitialized,
+  };
+  return saveSetting('admin_account', sanitizedAccount);
 }
 
 // ============================================================

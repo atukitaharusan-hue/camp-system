@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { fetchAdminAccount, saveAdminAccount, fetchAdminInvites, fetchAdminMembers } from '@/lib/admin/fetchData';
-import type { AdminAccountProfile, AdminMember, AdminMemberInvite } from '@/types/admin';
+import { fetchAdminAccount, saveAdminAccount, fetchAdminInvites } from '@/lib/admin/fetchData';
+import type { AdminAccountProfile, AdminMemberInvite } from '@/types/admin';
 
 const SECRET_PASSWORD = '0221';
 
@@ -21,7 +21,7 @@ function AdminSetupContent() {
   const [passwordInput, setPasswordInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [message, setMessage] = useState('');
-  const [form, setForm] = useState<AdminAccountProfile>({ userName: '', email: '', password: '', isInitialized: false, allowConcurrentLogin: true });
+  const [form, setForm] = useState<AdminAccountProfile>({ userName: '', email: '', isInitialized: false, allowConcurrentLogin: true });
   const [invites, setInvites] = useState<AdminMemberInvite[]>([]);
 
   useEffect(() => {
@@ -73,10 +73,6 @@ function AdminSetupContent() {
             <label className="block text-sm text-gray-700">
               メールアドレス
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm" />
-            </label>
-            <label className="block text-sm text-gray-700">
-              パスワード（任意で設定）
-              <input value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </label>
             <label className="block text-sm text-gray-700">
               ユーザー名

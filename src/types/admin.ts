@@ -126,7 +126,6 @@ export interface AdminMember {
 export interface AdminAccountProfile {
   userName: string;
   email: string;
-  password: string;
   allowConcurrentLogin: boolean;
   isInitialized: boolean;
 }

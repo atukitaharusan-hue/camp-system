@@ -52,10 +52,10 @@
 
 ## 3. 重大: 管理者アカウントの平文パスワード保存をやめる
 
-- [ ] `admin_account` 設定に `password` を保存しない
-- [ ] アカウント画面でパスワードを表示しない
-- [ ] 初回設定画面のパスワード欄を削除するか、保存が必要ならハッシュ化して用途を明確にする
-- [ ] 既存の `app_settings.admin_account.password` を移行または無視する方針を決める
+- [x] `admin_account` 設定に `password` を保存しない
+- [x] アカウント画面でパスワードを表示しない
+- [x] 初回設定画面のパスワード欄を削除するか、保存が必要ならハッシュ化して用途を明確にする
+- [x] 既存の `app_settings.admin_account.password` を移行または無視する方針を決める
 
 対象候補:
 
@@ -63,6 +63,7 @@
 - `src/app/admin/account/page.tsx`
 - `src/lib/admin/fetchData.ts`
 - `src/types/admin.ts`
+- `supabase/migrations/20260501100000_remove_admin_account_plain_password.sql`
 
 完了条件:
 
