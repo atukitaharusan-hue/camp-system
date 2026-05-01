@@ -8,17 +8,17 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
-import { supabase } from '@/lib/supabase';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 interface PaymentFormProps {
+  reservationId: string;
   amount: number;
   onSuccess: (reservationId: string) => void;
   onCancel: () => void;
 }
 
-function PaymentForm({ amount, onSuccess, onCancel }: PaymentFormProps) {
+function PaymentForm({ reservationId, amount, onSuccess, onCancel }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -33,36 +33,22 @@ function PaymentForm({ amount, onSuccess, onCancel }: PaymentFormProps) {
     setError(null);
 
     try {
-      // 予約を作成
-      const { data: reservation, error: reservationError } = await supabase
-        .from('reservations')
-        .insert({
-          user_id: 'temp-user', // LIFFユーザーIDに置き換え
-          site_id: 'site-1', // 選択されたサイト
-          check_in_date: '2024-01-01', // 選択された日付
-          check_out_date: '2024-01-02',
-          total_guests: 2, // 選択された人数
-          total_amount: amount,
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (reservationError) throw reservationError;
-
-      // Stripe決済
       const { error: stripeError } = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          return_url: `${window.location.origin}/booking/confirmation?id=${reservation.id}`,
+          return_url: `${window.location.origin}/booking/confirmation?id=${reservationId}`,
         },
+        redirect: 'if_required',
       });
 
       if (stripeError) {
         setError(stripeError.message || '決済に失敗しました');
+        return;
       }
+
+      onSuccess(reservationId);
     } catch (err) {
-      setError('予約作成に失敗しました');
+      setError('決済処理に失敗しました');
       console.error(err);
     } finally {
       setProcessing(false);
@@ -96,32 +82,63 @@ function PaymentForm({ amount, onSuccess, onCancel }: PaymentFormProps) {
 }
 
 interface StripePaymentProps {
-  amount: number;
+  reservationId: string;
+  amount?: number;
   onSuccess: (reservationId: string) => void;
   onCancel: () => void;
 }
 
-export default function StripePayment({ amount, onSuccess, onCancel }: StripePaymentProps) {
-  const [clientSecret, setClientSecret] = useState('');
+export default function StripePayment({ reservationId, amount, onSuccess, onCancel }: StripePaymentProps) {
+  const [paymentIntent, setPaymentIntent] = useState<{ reservationId: string; clientSecret: string; amount: number } | null>(null);
+  const [loadError, setLoadError] = useState<{ reservationId: string; message: string } | null>(null);
 
   useEffect(() => {
-    // サーバーサイドでPaymentIntentを作成
+    if (!reservationId) return;
+    let ignore = false;
+
     fetch('/api/create-payment-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ reservationId }),
     })
-      .then((res) => res.json())
-      .then((data) => setClientSecret(data.clientSecret));
-  }, [amount]);
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error ?? '決済情報の作成に失敗しました');
+        }
+        if (!ignore) {
+          setPaymentIntent({
+            reservationId,
+            clientSecret: data.clientSecret,
+            amount: Number(data.amount ?? amount ?? 0),
+          });
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setLoadError({
+            reservationId,
+            message: err instanceof Error ? err.message : '決済情報の作成に失敗しました',
+          });
+        }
+      });
 
-  if (!clientSecret) {
+    return () => {
+      ignore = true;
+    };
+  }, [amount, reservationId]);
+
+  if (loadError?.reservationId === reservationId) {
+    return <div className="text-red-600 text-sm">{loadError.message}</div>;
+  }
+
+  if (paymentIntent?.reservationId !== reservationId) {
     return <div>決済情報を読み込み中...</div>;
   }
 
   return (
-    <Elements stripe={stripePromise} options={{ clientSecret }}>
-      <PaymentForm amount={amount} onSuccess={onSuccess} onCancel={onCancel} />
+    <Elements stripe={stripePromise} options={{ clientSecret: paymentIntent.clientSecret }}>
+      <PaymentForm reservationId={reservationId} amount={paymentIntent.amount} onSuccess={onSuccess} onCancel={onCancel} />
     </Elements>
   );
 }

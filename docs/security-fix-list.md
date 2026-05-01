@@ -88,11 +88,11 @@
 
 ## 5. 高: Stripe PaymentIntent の金額をサーバー側で決定する
 
-- [ ] クライアントから送られた `amount` をそのまま信用しない
-- [ ] 予約内容または予約IDをもとにサーバー側で料金を再計算する
-- [ ] 金額の整数・最小値・最大値を検証する
-- [ ] PaymentIntent に reservation id などの metadata を付与する
-- [ ] 必要に応じて idempotency key を導入する
+- [x] クライアントから送られた `amount` をそのまま信用しない
+- [x] 予約内容または予約IDをもとにサーバー側で料金を再計算する
+- [x] 金額の整数・最小値・最大値を検証する
+- [x] PaymentIntent に reservation id などの metadata を付与する
+- [x] 必要に応じて idempotency key を導入する
 
 対象候補:
 

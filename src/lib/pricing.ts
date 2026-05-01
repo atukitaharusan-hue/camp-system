@@ -24,9 +24,21 @@ export const defaultPricingSettings: PricingSettings = {
   },
 };
 
+export const STRIPE_JPY_MIN_AMOUNT = 50;
+export const STRIPE_JPY_MAX_AMOUNT = 99_999_999;
+
 function normalizeLineItemAmount(value: unknown) {
   const amount = Number(value ?? 0);
   return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+}
+
+export function normalizeStripeJpyAmount(value: unknown) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return null;
+  const integerAmount = Math.trunc(amount);
+  if (integerAmount !== amount) return null;
+  if (integerAmount < STRIPE_JPY_MIN_AMOUNT || integerAmount > STRIPE_JPY_MAX_AMOUNT) return null;
+  return integerAmount;
 }
 
 function normalizePositiveCount(value: unknown) {
