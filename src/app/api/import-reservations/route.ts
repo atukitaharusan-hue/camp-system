@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { generateQrToken } from '@/lib/generateQrToken';
 import { calculateNights, formatAdminErrors, validateReservation } from '@/lib/validateReservation';
 import type {
@@ -9,8 +8,9 @@ import type {
   ImportRowError,
 } from '@/types/import';
 import type { Json } from '@/types/database';
-import { logAdminAction } from '@/lib/admin/actionLog';
+import { logAdminActionServer } from '@/lib/admin/actionLogServer';
 import { requireAdminRequest } from '@/lib/admin/requestAuth';
+import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 function buildSpecialRequests(row: ImportParsedRow) {
   const lines = [
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
   if (authError) return authError;
 
   try {
+    const supabase = getSupabaseAdminClient();
     const body = await request.json();
     const rows: ImportParsedRow[] = body.rows;
     const errorRows: ImportRowError[] = body.errorRows ?? [];
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', jobId);
 
-    await logAdminAction({
+    await logAdminActionServer({
       adminEmail: executedBy,
       actionType: 'import_execute',
       targetType: 'import_job',

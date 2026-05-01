@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 import type {
   AdminAccountProfile,
@@ -23,6 +24,26 @@ import {
   normalizeGuestBandRules,
   normalizePricingSettings,
 } from '@/lib/pricing';
+
+type AdminSupabaseClient = SupabaseClient<Database>;
+
+async function postAdminMutation(path: string, body: Record<string, unknown>, fallbackMessage: string) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const message = typeof payload.error === 'string' ? payload.error : fallbackMessage;
+    const code = typeof payload.code === 'string' ? payload.code : 'API_ERROR';
+    const details = Array.isArray(payload.details)
+      ? payload.details.filter((detail: unknown): detail is string => typeof detail === 'string')
+      : [];
+    throw new AdminSaveError(message, code, details);
+  }
+}
 
 export class AdminSaveError extends Error {
   code: string;
@@ -69,124 +90,6 @@ function clearAdminCache(prefixes: string[]) {
   }
 }
 
-function isNetworkFetchError(error: unknown) {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof error.message === 'string' &&
-    error.message.toLowerCase().includes('failed to fetch')
-  );
-}
-
-function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-}
-
-function normalizePlanRow(plan: AdminPlan) {
-  return {
-    name: plan.name.trim(),
-    description: plan.description.trim(),
-    category: plan.category.trim() || null,
-    features: plan.features.trim() || null,
-    is_published: plan.isPublished,
-    is_lodging_tax_applicable: Boolean(plan.isLodgingTaxApplicable),
-    pricing_mode: plan.pricingMode,
-    base_price: plan.basePrice,
-    adult_price: plan.adultPrice,
-    child_price: plan.childPrice,
-    infant_price: plan.infantPrice,
-    guest_band_rules:
-      normalizeGuestBandRules(plan.guestBandRules) as unknown as Database['public']['Tables']['plans']['Insert']['guest_band_rules'],
-    capacity: plan.maxSiteCount,
-    max_site_count: plan.maxSiteCount,
-    max_concurrent_reservations: plan.maxConcurrentReservations,
-    max_guests_per_booking: plan.maxGuestsPerReservation,
-    sales_start_date: plan.salesStartDate || null,
-    sales_end_date: plan.salesEndDate || null,
-    image_url: plan.imageUrl || null,
-  };
-}
-
-function buildPlanValidationErrors(plans: AdminPlan[]) {
-  const errors: string[] = [];
-
-  plans.forEach((plan, index) => {
-    const label = plan.name.trim() || `プラン${index + 1}`;
-
-    if (!plan.name.trim()) errors.push(`${label}: プラン名は必須です。`);
-    if (!plan.description.trim()) errors.push(`${label}: 説明は必須です。`);
-    if (!Number.isFinite(plan.basePrice) || plan.basePrice < 0) errors.push(`${label}: 基本料金は0以上で入力してください。`);
-    if (plan.pricingMode !== 'per_group' && plan.pricingMode !== 'per_person') {
-      errors.push(`${label}: 料金計算パターンを選択してください。`);
-    }
-    if (plan.pricingMode === 'per_person') {
-      if (!Number.isFinite(plan.adultPrice) || plan.adultPrice < 0) {
-        errors.push(`${label}: 大人(中学生以上)単価は0円以上で入力してください。`);
-      }
-      if (!Number.isFinite(plan.childPrice) || plan.childPrice < 0) {
-        errors.push(`${label}: 子ども単価は0円以上で入力してください。`);
-      }
-      if (!Number.isFinite(plan.infantPrice) || plan.infantPrice < 0) {
-        errors.push(`${label}: 幼児単価は0円以上で入力してください。`);
-      }
-    }
-    if (!Number.isInteger(plan.maxSiteCount) || plan.maxSiteCount < 1) errors.push(`${label}: 上限サイト数は1以上の整数で入力してください。`);
-    if (!Number.isInteger(plan.maxConcurrentReservations) || plan.maxConcurrentReservations < 1) {
-      errors.push(`${label}: 同時予約上限数は1以上の整数で入力してください。`);
-    }
-    if (!Number.isInteger(plan.maxGuestsPerReservation) || plan.maxGuestsPerReservation < 1) {
-      errors.push(`${label}: 1度の予約にあたる上限定員数は1以上の整数で入力してください。`);
-    }
-    if (
-      plan.salesStartDate &&
-      plan.salesEndDate &&
-      new Date(plan.salesStartDate).getTime() > new Date(plan.salesEndDate).getTime()
-    ) {
-      errors.push(`${label}: 予約可能期間の終了日は開始日以降にしてください。`);
-    }
-  });
-
-  return errors;
-}
-
-function toAdminSaveError(error: unknown, fallbackMessage: string): AdminSaveError {
-  if (error instanceof AdminSaveError) return error;
-
-  const message =
-    typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
-      ? error.message
-      : fallbackMessage;
-  const code =
-    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
-      ? error.code
-      : 'UNKNOWN';
-
-  if (
-    code === '42703' ||
-    message.includes('max_site_count') ||
-    message.includes('max_concurrent_reservations') ||
-    message.includes('max_guests_per_booking') ||
-    message.includes('is_lodging_tax_applicable')
-  ) {
-    return new AdminSaveError(
-      'プラン管理に必要なDB列がまだ作成されていません。Supabase の migration を適用してください。',
-      'MIGRATION_REQUIRED',
-      ['不足している可能性がある列: max_site_count / max_concurrent_reservations / max_guests_per_booking'],
-    );
-  }
-
-  if (code === '23502') {
-    return new AdminSaveError('必須項目が不足しているため保存できません。入力内容を確認してください。', code);
-  }
-
-  if (code === '23503') {
-    return new AdminSaveError('関連するサイト情報との紐付けに失敗しました。対象サイトが存在するか確認してください。', code);
-  }
-
-  return new AdminSaveError(message || fallbackMessage, code);
-}
-
 // ============================================================
 // Sites
 // ============================================================
@@ -230,7 +133,7 @@ export async function fetchSites(): Promise<AdminSite[]> {
   return sites;
 }
 
-export async function saveSites(sites: AdminSite[]): Promise<void> {
+export async function saveSitesToDatabase(supabaseClient: AdminSupabaseClient, sites: AdminSite[]): Promise<void> {
   const normalizedSiteNumbers = new Set<string>();
   for (const site of sites) {
     const siteLabel = site.siteNumber?.trim() || site.siteName?.trim() || 'サイト';
@@ -251,7 +154,7 @@ export async function saveSites(sites: AdminSite[]): Promise<void> {
   }
 
   const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-  const { data: existingSites, error: existingSitesError } = await supabase.from('sites').select('id');
+  const { data: existingSites, error: existingSitesError } = await supabaseClient.from('sites').select('id');
   if (existingSitesError) throw existingSitesError;
 
   const incomingIds = new Set(
@@ -265,14 +168,14 @@ export async function saveSites(sites: AdminSite[]): Promise<void> {
 
   if (deletedIds.length > 0) {
     const [deletePlanSitesResult, deleteSiteClosuresResult] = await Promise.all([
-      supabase.from('plan_sites').delete().in('site_id', deletedIds),
-      supabase.from('site_closures').delete().in('site_id', deletedIds),
+      supabaseClient.from('plan_sites').delete().in('site_id', deletedIds),
+      supabaseClient.from('site_closures').delete().in('site_id', deletedIds),
     ]);
 
     if (deletePlanSitesResult.error) throw deletePlanSitesResult.error;
     if (deleteSiteClosuresResult.error) throw deleteSiteClosuresResult.error;
 
-    const { error: deleteSitesError } = await supabase.from('sites').delete().in('id', deletedIds);
+    const { error: deleteSitesError } = await supabaseClient.from('sites').delete().in('id', deletedIds);
     if (deleteSitesError) throw deleteSitesError;
   }
 
@@ -294,13 +197,17 @@ export async function saveSites(sites: AdminSite[]): Promise<void> {
     };
 
     if (!s.id || !isUuid(s.id)) {
-      const { error } = await supabase.from('sites').insert(row);
+      const { error } = await supabaseClient.from('sites').insert(row);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from('sites').upsert({ ...row, id: s.id });
+      const { error } = await supabaseClient.from('sites').upsert({ ...row, id: s.id });
       if (error) throw error;
     }
   }
+}
+
+export async function saveSites(sites: AdminSite[]): Promise<void> {
+  await postAdminMutation('/api/admin/data', { action: 'saveSites', sites }, 'サイト情報の保存に失敗しました。');
 
   clearAdminCache(['sites:']);
 }
@@ -352,59 +259,7 @@ export async function fetchPlans(): Promise<AdminPlan[]> {
 }
 
 export async function savePlans(plans: AdminPlan[]): Promise<void> {
-  const { data: existingPlans, error: existingPlansError } = await supabase.from('plans').select('id');
-  if (existingPlansError) throw existingPlansError;
-
-  const incomingIds = new Set(
-    plans
-      .map((plan) => plan.id)
-      .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)),
-  );
-  const deletedIds = (existingPlans ?? []).map((plan) => plan.id).filter((id) => !incomingIds.has(id));
-
-  if (deletedIds.length > 0) {
-    const { error } = await supabase.from('plans').delete().in('id', deletedIds);
-    if (error) throw error;
-  }
-
-  for (const plan of plans) {
-    const isNew = !plan.id || !plan.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-    const row = normalizePlanRow(plan);
-
-    let planId = plan.id;
-
-    if (isNew) {
-      const { data, error } = await supabase.from('plans').insert(row).select('id').single();
-      if (error) throw error;
-      planId = data.id;
-    } else {
-      const { error } = await supabase.from('plans').upsert({ ...row, id: plan.id });
-      if (error) throw error;
-    }
-
-    // plan_sites 再構築
-    const { error: deletePlanSitesError } = await supabase.from('plan_sites').delete().eq('plan_id', planId);
-    if (deletePlanSitesError) throw deletePlanSitesError;
-    if (plan.targetSiteIds.length > 0) {
-      const { error: insertPlanSitesError } = await supabase.from('plan_sites').insert(
-        plan.targetSiteIds.map((siteId) => ({ plan_id: planId, site_id: siteId })),
-      );
-      if (insertPlanSitesError) throw insertPlanSitesError;
-    }
-
-    const { error: deletePlanOptionsError } = await supabase
-      .from('plan_options')
-      .delete()
-      .eq('plan_id', planId);
-    if (deletePlanOptionsError) throw deletePlanOptionsError;
-
-    if (plan.applicableOptionIds.length > 0) {
-      const { error: insertPlanOptionsError } = await supabase.from('plan_options').insert(
-        plan.applicableOptionIds.map((optionId) => ({ plan_id: planId, option_id: optionId })),
-      );
-      if (insertPlanOptionsError) throw insertPlanOptionsError;
-    }
-  }
+  await postAdminMutation('/api/admin/data', { action: 'savePlans', plans }, 'プラン情報の保存に失敗しました。');
 
   clearAdminCache(['plans:', 'options:']);
 }
@@ -432,8 +287,8 @@ export async function fetchEvents(): Promise<AdminEvent[]> {
   }));
 }
 
-export async function saveEvents(events: AdminEvent[]): Promise<void> {
-  const { data: existingEvents, error: existingEventsError } = await supabase.from('events').select('id');
+export async function saveEventsToDatabase(supabaseClient: AdminSupabaseClient, events: AdminEvent[]): Promise<void> {
+  const { data: existingEvents, error: existingEventsError } = await supabaseClient.from('events').select('id');
   if (existingEventsError) throw existingEventsError;
 
   const incomingIds = new Set(
@@ -444,7 +299,7 @@ export async function saveEvents(events: AdminEvent[]): Promise<void> {
   const deletedIds = (existingEvents ?? []).map((event) => event.id).filter((id) => !incomingIds.has(id));
 
   if (deletedIds.length > 0) {
-    const { error } = await supabase.from('events').delete().in('id', deletedIds);
+    const { error } = await supabaseClient.from('events').delete().in('id', deletedIds);
     if (error) throw error;
   }
 
@@ -460,13 +315,17 @@ export async function saveEvents(events: AdminEvent[]): Promise<void> {
       is_published: e.isPublished,
     };
     if (!e.id || !isUuid(e.id)) {
-      const { error } = await supabase.from('events').insert(row);
+      const { error } = await supabaseClient.from('events').insert(row);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from('events').upsert({ ...row, id: e.id });
+      const { error } = await supabaseClient.from('events').upsert({ ...row, id: e.id });
       if (error) throw error;
     }
   }
+}
+
+export async function saveEvents(events: AdminEvent[]): Promise<void> {
+  await postAdminMutation('/api/admin/data', { action: 'saveEvents', events }, 'イベント情報の保存に失敗しました。');
 }
 
 // ============================================================
@@ -539,9 +398,9 @@ export async function fetchOptions(planId?: string): Promise<OptionItem[]> {
   return options;
 }
 
-export async function saveOptions(options: OptionItem[]): Promise<void> {
+export async function saveOptionsToDatabase(supabaseClient: AdminSupabaseClient, options: OptionItem[]): Promise<void> {
   const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-  const { data: existingOptions, error: existingOptionsError } = await supabase.from('options').select('id');
+  const { data: existingOptions, error: existingOptionsError } = await supabaseClient.from('options').select('id');
   if (existingOptionsError) throw existingOptionsError;
 
   const incomingIds = new Set(
@@ -555,7 +414,7 @@ export async function saveOptions(options: OptionItem[]): Promise<void> {
     .filter((id) => !incomingIds.has(id));
 
   if (deletedIds.length > 0) {
-    const { error: deleteOptionsError } = await supabase.from('options').delete().in('id', deletedIds);
+    const { error: deleteOptionsError } = await supabaseClient.from('options').delete().in('id', deletedIds);
     if (deleteOptionsError) throw deleteOptionsError;
   }
 
@@ -577,13 +436,17 @@ export async function saveOptions(options: OptionItem[]): Promise<void> {
       current_participants: o.currentParticipants ?? 0,
     };
     if (!o.id || !isUuid(o.id)) {
-      const { error } = await supabase.from('options').insert(row);
+      const { error } = await supabaseClient.from('options').insert(row);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from('options').upsert({ ...row, id: o.id });
+      const { error } = await supabaseClient.from('options').upsert({ ...row, id: o.id });
       if (error) throw error;
     }
   }
+}
+
+export async function saveOptions(options: OptionItem[]): Promise<void> {
+  await postAdminMutation('/api/admin/data', { action: 'saveOptions', options }, 'オプション情報の保存に失敗しました。');
 
   clearAdminCache(['options:']);
 }
@@ -701,7 +564,10 @@ const defaultAdminAccount: AdminAccountProfile = {
 };
 
 export async function fetchAdminAccount(): Promise<AdminAccountProfile> {
-  return (await fetchSetting<AdminAccountProfile>('admin_account')) ?? defaultAdminAccount;
+  const response = await fetch('/api/admin/settings?key=admin_account');
+  if (!response.ok) return defaultAdminAccount;
+  const payload = await response.json().catch(() => ({}));
+  return (payload.value as AdminAccountProfile | null) ?? defaultAdminAccount;
 }
 
 export async function saveAdminAccount(account: AdminAccountProfile): Promise<void> {
@@ -762,19 +628,19 @@ export async function fetchSalesRule(): Promise<SalesRule> {
   return salesRule;
 }
 
-export async function saveSalesRule(rule: SalesRule): Promise<void> {
+export async function saveSalesRuleToDatabase(supabaseClient: AdminSupabaseClient, rule: SalesRule): Promise<void> {
   // closed_dates を置換
-  await supabase.from('closed_dates').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+  await supabaseClient.from('closed_dates').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
   if (rule.closedDates.length > 0) {
-    await supabase.from('closed_dates').insert(
+    await supabaseClient.from('closed_dates').insert(
       rule.closedDates.map((d) => ({ closed_date: d })),
     );
   }
 
   // closed_date_ranges を置換
-  await supabase.from('closed_date_ranges').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await supabaseClient.from('closed_date_ranges').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   if (rule.closedDateRanges.length > 0) {
-    await supabase.from('closed_date_ranges').insert(
+    await supabaseClient.from('closed_date_ranges').insert(
       rule.closedDateRanges.map((r) => ({
         start_date: r.startDate,
         end_date: r.endDate,
@@ -784,9 +650,9 @@ export async function saveSalesRule(rule: SalesRule): Promise<void> {
   }
 
   // site_closures を置換
-  await supabase.from('site_closures').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await supabaseClient.from('site_closures').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   if (rule.siteClosures.length > 0) {
-    await supabase.from('site_closures').insert(
+    await supabaseClient.from('site_closures').insert(
       rule.siteClosures.map((c) => ({
         site_id: c.siteId,
         start_date: c.startDate,
@@ -795,6 +661,10 @@ export async function saveSalesRule(rule: SalesRule): Promise<void> {
       })),
     );
   }
+}
+
+export async function saveSalesRule(rule: SalesRule): Promise<void> {
+  await postAdminMutation('/api/admin/data', { action: 'saveSalesRule', rule }, '販売ルールの保存に失敗しました。');
 
   clearAdminCache(['sales-rule']);
 }
@@ -804,13 +674,12 @@ export async function saveSalesRule(rule: SalesRule): Promise<void> {
 // ============================================================
 
 export async function fetchAdminMembers(): Promise<AdminMember[]> {
-  const { data, error } = await supabase
-    .from('admin_members')
-    .select('*')
-    .order('created_at');
-  if (error) { console.error('fetchAdminMembers error:', error); return []; }
+  const response = await fetch('/api/admin/members');
+  if (!response.ok) { console.error('fetchAdminMembers error:', response.statusText); return []; }
+  const payload = await response.json().catch(() => ({}));
+  const data = Array.isArray(payload.members) ? payload.members : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => ({
+  return data.map((r: any) => ({
     id: r.id,
     userName: r.user_name,
     email: r.email,
@@ -821,13 +690,12 @@ export async function fetchAdminMembers(): Promise<AdminMember[]> {
 }
 
 export async function fetchAdminInvites(): Promise<AdminMemberInvite[]> {
-  const { data, error } = await supabase
-    .from('admin_invites')
-    .select('*')
-    .order('created_at');
-  if (error) { console.error('fetchAdminInvites error:', error); return []; }
+  const response = await fetch('/api/admin/members');
+  if (!response.ok) { console.error('fetchAdminInvites error:', response.statusText); return []; }
+  const payload = await response.json().catch(() => ({}));
+  const data = Array.isArray(payload.invites) ? payload.invites : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => ({
+  return data.map((r: any) => ({
     id: r.id,
     email: r.email,
     token: r.token,

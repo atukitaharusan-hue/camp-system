@@ -89,8 +89,9 @@ export default function AdminImportPage() {
   const [historyJobs, setHistoryJobs] = useState<ImportJob[]>([]);
 
   const fetchHistory = useCallback(async () => {
-    const { data } = await supabase.from('import_jobs').select('*').order('created_at', { ascending: false }).limit(20);
-    if (data) setHistoryJobs(data);
+    const response = await fetch('/api/admin/import-jobs?limit=20');
+    const payload = await response.json().catch(() => ({}));
+    if (Array.isArray(payload.jobs)) setHistoryJobs(payload.jobs);
   }, []);
 
   useEffect(() => {

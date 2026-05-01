@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/admin/requestAuth';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import type { Database } from '@/types/database';
 
 const ALLOWED_SETTING_KEYS = new Set([
@@ -11,6 +11,29 @@ const ALLOWED_SETTING_KEYS = new Set([
   'qr_screen_settings',
   'site_map_settings',
 ]);
+
+export async function GET(request: NextRequest) {
+  const authError = await requireAdminRequest(request);
+  if (authError) return authError;
+
+  const key = request.nextUrl.searchParams.get('key') ?? '';
+  if (!ALLOWED_SETTING_KEYS.has(key)) {
+    return NextResponse.json({ error: '取得できない設定キーです。' }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ value: data?.value ?? null });
+}
 
 export async function POST(request: NextRequest) {
   const authError = await requireAdminRequest(request);
@@ -27,6 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '設定値が不足しています。' }, { status: 400 });
   }
 
+  const supabase = getSupabaseAdminClient();
   const { error } = await supabase
     .from('app_settings')
     .upsert({

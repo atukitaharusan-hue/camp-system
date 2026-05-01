@@ -1,6 +1,3 @@
-import { supabase } from '@/lib/supabase';
-import type { Json } from '@/types/database';
-
 export type ActionType =
   | 'reservation_create'
   | 'reservation_update'
@@ -27,47 +24,38 @@ export interface LogActionInput {
 }
 
 export async function logAdminAction(input: LogActionInput) {
-  const { error } = await supabase.from('admin_action_logs').insert({
-    admin_email: input.adminEmail,
-    action_type: input.actionType,
-    target_type: input.targetType,
-    target_id: input.targetId ?? null,
-    before_json: (input.before as Json) ?? null,
-    after_json: (input.after as Json) ?? null,
+  const response = await fetch('/api/admin/logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
-  if (error) {
-    console.error('[logAdminAction] Failed:', error.message);
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const message = typeof payload.error === 'string' ? payload.error : '操作ログの保存に失敗しました。';
+    console.error('[logAdminAction] Failed:', message);
   }
 }
 
 export async function fetchRecentActions(limit = 10) {
-  const { data, error } = await supabase
-    .from('admin_action_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.error('[fetchRecentActions] Failed:', error.message);
+  const response = await fetch(`/api/admin/logs?limit=${encodeURIComponent(String(limit))}`);
+  if (!response.ok) {
+    console.error('[fetchRecentActions] Failed:', response.statusText);
     return [];
   }
-  return data ?? [];
+  const payload = await response.json().catch(() => ({}));
+  return Array.isArray(payload.actions) ? payload.actions : [];
 }
 
 export async function fetchActionsByTarget(targetType: string, targetId: string) {
-  const { data, error } = await supabase
-    .from('admin_action_logs')
-    .select('*')
-    .eq('target_type', targetType)
-    .eq('target_id', targetId)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error) {
-    console.error('[fetchActionsByTarget] Failed:', error.message);
+  const params = new URLSearchParams({ limit: '50', targetType, targetId });
+  const response = await fetch(`/api/admin/logs?${params.toString()}`);
+  if (!response.ok) {
+    console.error('[fetchActionsByTarget] Failed:', response.statusText);
     return [];
   }
-  return data ?? [];
+  const payload = await response.json().catch(() => ({}));
+  return Array.isArray(payload.actions) ? payload.actions : [];
 }
 
 const ACTION_LABELS: Record<string, string> = {

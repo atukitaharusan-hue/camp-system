@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/database';
 
 type ImportJob = Database['public']['Tables']['import_jobs']['Row'];
@@ -20,16 +19,10 @@ export default function ImportJobDetailPage() {
 
   useEffect(() => {
     async function load() {
-      const [jobRes, rowsRes] = await Promise.all([
-        supabase.from('import_jobs').select('*').eq('id', id).single(),
-        supabase
-          .from('import_job_rows')
-          .select('*')
-          .eq('import_job_id', id)
-          .order('row_number', { ascending: true }),
-      ]);
-      setJob(jobRes.data);
-      setRows(rowsRes.data ?? []);
+      const response = await fetch(`/api/admin/import-jobs?id=${encodeURIComponent(id)}&includeRows=true`);
+      const payload = await response.json().catch(() => ({}));
+      setJob(payload.job ?? null);
+      setRows(Array.isArray(payload.rows) ? payload.rows : []);
       setLoading(false);
     }
     load();

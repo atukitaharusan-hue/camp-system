@@ -1,6 +1,6 @@
 import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
-import type { Database, Json } from '@/types/database';
+import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import type { Json } from '@/types/database';
 
 export const QR_ACCESS_COOKIE = 'qr_access_session';
 export const QR_ACCESS_MAX_AGE_SECONDS = 60 * 60 * 2;
@@ -14,14 +14,6 @@ export interface QrAccessPasswordSetting {
   salt: string;
   hash: string;
   updatedAt: string;
-}
-
-function getSupabaseServerClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
-    { auth: { persistSession: false } },
-  );
 }
 
 function getSessionSecret() {
@@ -48,7 +40,7 @@ export function verifyPassword(password: string, setting: QrAccessPasswordSettin
 }
 
 export async function fetchQrAccessPasswordSetting() {
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from('app_settings')
     .select('value')
@@ -60,7 +52,7 @@ export async function fetchQrAccessPasswordSetting() {
 }
 
 export async function saveQrAccessPasswordSetting(setting: QrAccessPasswordSetting) {
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseAdminClient();
   const { error } = await supabase
     .from('app_settings')
     .upsert({ key: QR_ACCESS_SETTING_KEY, value: setting as unknown as Json });
@@ -111,5 +103,5 @@ export function verifyQrAccessSessionToken(
 }
 
 export function getQrAccessSupabaseClient() {
-  return getSupabaseServerClient();
+  return getSupabaseAdminClient();
 }

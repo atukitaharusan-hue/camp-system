@@ -24,7 +24,10 @@ function parseSpecialRequestValue(specialRequests: string | null | undefined, ke
 export async function createReservation(
   payload: GuestReservationInsert,
 ): Promise<CreateReservationResult> {
-  const planId = payload.plan_id ?? null;
+  const planId = payload.plan_id ?? (parseSpecialRequestValue(payload.special_requests, 'PLAN_ID') || null);
+  if (planId && !payload.plan_id) {
+    payload.plan_id = planId;
+  }
   const requestedSiteCount = payload.reserved_site_count ?? 1;
   const selectedSiteNumbers = Array.isArray(payload.selected_site_numbers)
     ? payload.selected_site_numbers.filter((value): value is string => typeof value === 'string')
@@ -108,14 +111,6 @@ export async function createReservation(
       success: false,
       error: error.message ?? '予約保存に失敗しました。',
     };
-  }
-
-  const missingPlanId = !data.plan_id;
-  if (missingPlanId) {
-    const memoPlanId = parseSpecialRequestValue(data.special_requests, 'PLAN_ID');
-    if (memoPlanId) {
-      await supabase.from('guest_reservations').update({ plan_id: memoPlanId }).eq('id', data.id);
-    }
   }
 
   return { success: true, reservation: data };

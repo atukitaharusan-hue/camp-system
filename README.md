@@ -55,6 +55,7 @@ npm install
 # Supabase (ローカル)
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase start で表示される anon key>
+SUPABASE_SERVICE_ROLE_KEY=<supabase start で表示される service_role key>
 
 # Stripe (テスト用ダミーまたは実際のテストキー)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_dummy
@@ -79,7 +80,9 @@ supabase start
 ```
 
 初回起動時にマイグレーションとシードデータが自動適用されます。
-起動後に表示される `anon key` を `.env.local` に設定してください。
+起動後に表示される `anon key` と `service_role key` を `.env.local` に設定してください。
+
+`SUPABASE_SERVICE_ROLE_KEY` はサーバー専用の管理キーです。`NEXT_PUBLIC_` を付けず、ブラウザへ公開しないでください。
 
 ### 4. データベース型の生成
 

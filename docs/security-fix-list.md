@@ -7,10 +7,11 @@
 - [x] RLSを締める前の前提確認: 公開予約フローが必要とする SELECT/INSERT と、管理画面の direct write 依存を整理する
 - [x] 管理API化の土台として、Route Handler 用の管理者認証ガードを追加する
 - [x] `app_settings` の保存処理を認証済み管理API経由に変更する
-- [ ] `sites`, `plans`, `plan_sites`, `plan_options`, `options`, `events`, `app_settings`, `closed_dates`, `closed_date_ranges`, `site_closures`, `admin_members`, `admin_invites`, `import_jobs`, `import_job_rows`, `notification_logs`, `admin_action_logs` の anon INSERT/UPDATE/DELETE を禁止する
-- [ ] 公開画面で必要な SELECT だけを明示的に残す
-- [ ] 管理画面の保存・更新処理は認証済みサーバー API 経由、または Supabase Auth の role claim で許可する方針に寄せる
-- [ ] `guest_reservations` は公開予約作成に必要な INSERT は残し、SELECT/UPDATE は用途別に絞る
+- [x] `app_settings`, `import_jobs`, `import_job_rows`, `admin_members`, `admin_invites`, `notification_logs`, `admin_action_logs` の anon 書き込みを禁止する
+- [x] `sites`, `plans`, `plan_sites`, `plan_options`, `options`, `events`, `app_settings`, `closed_dates`, `closed_date_ranges`, `site_closures`, `admin_members`, `admin_invites`, `import_jobs`, `import_job_rows`, `notification_logs`, `admin_action_logs` の anon INSERT/UPDATE/DELETE を禁止する
+- [x] 公開画面で必要な SELECT だけを明示的に残す
+- [x] 管理画面の保存・更新処理は認証済みサーバー API 経由、または Supabase Auth の role claim で許可する方針に寄せる
+- [x] `guest_reservations` は公開予約作成に必要な INSERT は残し、SELECT/UPDATE は用途別に絞る
 
 対象候補:
 
@@ -21,7 +22,11 @@
 - `supabase/migrations/20240109000000_app_data_tables.sql`
 - `supabase/migrations/20260420112000_plan_options_rls.sql`
 - `src/app/api/admin/settings/route.ts`
+- `src/app/api/admin/data/route.ts`
+- `src/app/api/admin/reservations/route.ts`
 - `src/lib/admin/requestAuth.ts`
+- `src/lib/supabaseAdmin.ts`
+- `supabase/migrations/20260501090000_restrict_anon_admin_writes.sql`
 
 完了条件:
 

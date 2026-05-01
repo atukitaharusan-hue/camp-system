@@ -1,7 +1,9 @@
-import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeGuestBandRules } from '@/lib/pricing';
 import type { AdminPlan } from '@/types/admin';
 import type { Database } from '@/types/database';
+
+type AdminSupabaseClient = SupabaseClient<Database>;
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -46,7 +48,7 @@ function getRemovedValues(currentValues: string[], nextValues: string[]) {
   return currentValues.filter((value) => !next.has(value));
 }
 
-export async function persistPlans(plans: AdminPlan[]) {
+export async function persistPlansToDatabase(supabase: AdminSupabaseClient, plans: AdminPlan[]) {
   const { data: existingPlans, error: existingPlansError } = await supabase.from('plans').select('id');
   if (existingPlansError) throw existingPlansError;
 
@@ -148,5 +150,24 @@ export async function persistPlans(plans: AdminPlan[]) {
       );
       if (error) throw error;
     }
+  }
+}
+
+export async function persistPlans(plans: AdminPlan[]) {
+  const response = await fetch('/api/admin/data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'savePlans', plans }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const error = new Error(
+      typeof payload.error === 'string' ? payload.error : 'プラン情報の保存に失敗しました。',
+    );
+    if (typeof payload.code === 'string') {
+      Object.assign(error, { code: payload.code });
+    }
+    throw error;
   }
 }

@@ -250,18 +250,18 @@ export default function AdminQrScanPage() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { error } = await supabase
-      .from('guest_reservations')
-      .update({
-        status: 'checked_in',
-        checked_in_at: new Date().toISOString(),
-      })
-      .eq('id', reservation.id);
+    const response = await fetch('/api/admin/reservations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'checkIn', id: reservation.id }),
+    });
+    const result = await response.json().catch(() => ({}));
 
     setUpdatingReservationId(null);
 
-    if (error) {
-      setScanState({ type: 'error', message: `チェックイン更新に失敗しました: ${error.message}` });
+    if (!response.ok || !result.success) {
+      const message = typeof result.error === 'string' ? result.error : 'チェックイン更新に失敗しました。';
+      setScanState({ type: 'error', message: `チェックイン更新に失敗しました: ${message}` });
       return;
     }
 
