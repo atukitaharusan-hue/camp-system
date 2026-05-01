@@ -1,6 +1,8 @@
 import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import type { Json } from '@/types/database';
+import type { Database, Json } from '@/types/database';
+
+type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 
 export const QR_ACCESS_COOKIE = 'qr_access_session';
 export const QR_ACCESS_MAX_AGE_SECONDS = 60 * 60 * 2;
@@ -100,6 +102,28 @@ export function verifyQrAccessSessionToken(
   } catch {
     return false;
   }
+}
+
+function normalizeComparableValue(value: string | null | undefined) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function isSameQrAccessCustomer(target: GuestReservationRow, candidate: GuestReservationRow) {
+  if (target.id === candidate.id) return true;
+
+  const targetIdentifier = normalizeComparableValue(target.user_identifier);
+  const candidateIdentifier = normalizeComparableValue(candidate.user_identifier);
+  if (targetIdentifier && candidateIdentifier && targetIdentifier === candidateIdentifier) return true;
+
+  const targetEmail = normalizeComparableValue(target.user_email)?.toLowerCase() ?? null;
+  const candidateEmail = normalizeComparableValue(candidate.user_email)?.toLowerCase() ?? null;
+  if (targetEmail && candidateEmail && targetEmail === candidateEmail) return true;
+
+  const targetPhone = normalizeComparableValue(target.user_phone);
+  const candidatePhone = normalizeComparableValue(candidate.user_phone);
+  if (targetPhone && candidatePhone && targetPhone === candidatePhone) return true;
+
+  return false;
 }
 
 export function getQrAccessSupabaseClient() {
