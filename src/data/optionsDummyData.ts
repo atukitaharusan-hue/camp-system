@@ -8,6 +8,8 @@ export const dummyBookingContext: BookingContext = {
   adults: 2,
   children: 1,
   infants: 1,
+  planId: "plan-001",
+  planName: "コテージプラン",
   planPricingMode: "per_group",
   planBasePrice: 8000,
   planAdultPrice: 0,
@@ -17,11 +19,12 @@ export const dummyBookingContext: BookingContext = {
   requestedSiteCount: 1,
   siteId: "2",
   siteNumber: "A-12",
-  siteName: "眺望サイト A-12",
+  siteName: "区画サイト A-12",
+  selectedSiteNumbers: ["A-12"],
   sitePrice: 8000,
   designationFee: 1000,
   areaName: "Aエリア",
-  subAreaName: "眺望サイト",
+  subAreaName: "区画サイト",
 };
 
 export const dummyOptions: OptionItem[] = [

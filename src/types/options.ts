@@ -55,6 +55,8 @@ export interface BookingContext {
   adults: number;
   children: number;
   infants: number;
+  planId: string;
+  planName: string;
   planPricingMode: PlanPricingMode;
   planBasePrice: number;
   planAdultPrice: number;
@@ -65,6 +67,7 @@ export interface BookingContext {
   siteId: string;
   siteNumber: string;
   siteName: string;
+  selectedSiteNumbers: string[];
   sitePrice: number;
   designationFee: number;
   areaName: string;

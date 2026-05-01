@@ -32,6 +32,7 @@ export interface PlanAvailabilityDay {
   concurrentReservations: number;
   remainingConcurrentReservations: number;
   availableSites: number;
+  isBookable: boolean;
   mark: AvailabilityMark;
 }
 
@@ -43,6 +44,15 @@ export interface PlanAvailabilitySummary {
   maxConcurrentReservations: number;
   maxGuestsPerReservation: number;
   remainingConcurrentReservations: number;
+}
+
+export interface SiteAvailabilitySummary {
+  siteId: string;
+  siteNumber: string;
+  capacity: number;
+  reservedCount: number;
+  availableCount: number;
+  isAvailable: boolean;
 }
 
 export interface InventoryValidationInput {
@@ -63,7 +73,9 @@ export interface InventoryValidationResult {
 }
 
 function toIsoDate(date: Date) {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    date.getUTCDate(),
+  ).padStart(2, '0')}`;
 }
 
 export function getStayDates(checkInDate: string, checkOutDate: string) {
@@ -83,10 +95,6 @@ function isActiveReservation(reservation: ReservationRow) {
   return reservation.status !== 'cancelled';
 }
 
-function overlaps(reservation: ReservationRow, checkInDate: string, checkOutDate: string) {
-  return reservation.check_in_date < checkOutDate && reservation.check_out_date > checkInDate;
-}
-
 function getReservedSiteCount(reservation: ReservationRow) {
   const value = reservation.reserved_site_count;
   return typeof value === 'number' && value > 0 ? value : 1;
@@ -101,11 +109,56 @@ function getSelectedSiteNumbers(reservation: ReservationRow) {
   return reservation.site_number ? [reservation.site_number] : [];
 }
 
+function getSiteReservationCountForDate({
+  date,
+  siteNumber,
+  reservations,
+}: {
+  date: string;
+  siteNumber: string;
+  reservations: ReservationRow[];
+}) {
+  return reservations.filter(
+    (reservation) =>
+      reservation.check_in_date <= date &&
+      reservation.check_out_date > date &&
+      getSelectedSiteNumbers(reservation).includes(siteNumber),
+  ).length;
+}
+
 function extractPlanId(reservation: ReservationRow) {
   if (reservation.plan_id) return reservation.plan_id;
   const memo = reservation.special_requests ?? '';
   const match = memo.match(/PLAN_ID:\s*([A-Za-z0-9-]+)/);
   return match?.[1] ?? null;
+}
+
+function extractMultiPlanItems(reservation: ReservationRow) {
+  const memo = reservation.special_requests ?? '';
+  const match = memo.match(/^MULTI_PLAN_ITEMS:\s*(.+)$/m);
+  if (!match) return [];
+
+  try {
+    const parsed = JSON.parse(match[1]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const source = item as { planId?: unknown; siteCount?: unknown; siteNumbers?: unknown };
+        const planId = typeof source.planId === 'string' ? source.planId : '';
+        if (!planId) return null;
+        return {
+          planId,
+          siteCount: Math.max(1, Number(source.siteCount ?? 1)),
+          siteNumbers: Array.isArray(source.siteNumbers)
+            ? source.siteNumbers.filter((siteNumber): siteNumber is string => typeof siteNumber === 'string')
+            : [],
+        };
+      })
+      .filter((item): item is { planId: string; siteCount: number; siteNumbers: string[] } => Boolean(item));
+  } catch {
+    return [];
+  }
 }
 
 function buildPlanSiteMap(plans: AdminPlan[]) {
@@ -173,20 +226,33 @@ function getPlanReservationMetricsForDate({
   planSiteMap: Map<string, Set<string>>;
   siteLookup: Map<string, AdminSite>;
 }) {
-  const matchingReservations = reservations.filter(
-    (reservation) =>
-      reservation.check_in_date <= date &&
-      reservation.check_out_date > date &&
-      resolveReservationPlanId(reservation, planSiteMap, siteLookup) === planId,
-  );
+  const matchingPlanItems = reservations.flatMap((reservation) => {
+    if (reservation.check_in_date > date || reservation.check_out_date <= date) return [];
+
+    const multiPlanItems = extractMultiPlanItems(reservation);
+    if (multiPlanItems.length > 0) {
+      return multiPlanItems
+        .filter((item) => item.planId === planId)
+        .map((item) => ({
+          reservation,
+          reservedSiteCount: item.siteCount,
+        }));
+    }
+
+    return resolveReservationPlanId(reservation, planSiteMap, siteLookup) === planId
+      ? [
+          {
+            reservation,
+            reservedSiteCount: getReservedSiteCount(reservation),
+          },
+        ]
+      : [];
+  });
 
   return {
-    matchingReservations,
-    reservedSites: matchingReservations.reduce(
-      (sum, reservation) => sum + getReservedSiteCount(reservation),
-      0,
-    ),
-    concurrentReservations: matchingReservations.length,
+    matchingReservations: matchingPlanItems.map((item) => item.reservation),
+    reservedSites: matchingPlanItems.reduce((sum, item) => sum + item.reservedSiteCount, 0),
+    concurrentReservations: matchingPlanItems.length,
   };
 }
 
@@ -244,6 +310,7 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
   const siteLookup = buildSiteLookup(sites);
   const planSiteMap = buildPlanSiteMap(plans);
   const activeReservations = reservations.filter(isActiveReservation);
+
   return plans.map((plan): PlanAvailabilitySummary => {
     const salesWindow = evaluatePlanBookablePeriod(plan, checkInDate, checkOutDate);
     let minAvailableSites = Number.POSITIVE_INFINITY;
@@ -287,6 +354,59 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
       remainingConcurrentReservations: salesWindow.isAvailable ? remainingConcurrentReservations : 0,
     };
   });
+}
+
+export async function getSiteAvailabilityForStay(
+  checkInDate: string,
+  checkOutDate: string,
+  planId: string,
+) {
+  const { plans, sites, salesRule, reservations } = await loadAvailabilityContext(
+    checkInDate,
+    checkOutDate,
+  );
+  const plan = plans.find((item) => item.id === planId);
+
+  if (!plan) return [] as SiteAvailabilitySummary[];
+
+  const stayDates = getStayDates(checkInDate, checkOutDate);
+  const activeReservations = reservations.filter(isActiveReservation);
+
+  return sites
+    .filter((site) => plan.targetSiteIds.includes(site.id))
+    .map((site): SiteAvailabilitySummary => {
+      let minAvailableCount = Number.POSITIVE_INFINITY;
+      let maxReservedCount = 0;
+
+      for (const date of stayDates) {
+        const closedSiteIds = getClosedSiteIdsByDate(salesRule, date);
+        if (site.status !== 'active' || !site.isPublished || closedSiteIds.has(site.id)) {
+          minAvailableCount = 0;
+          continue;
+        }
+
+        const reservedCount = getSiteReservationCountForDate({
+          date,
+          siteNumber: site.siteNumber,
+          reservations: activeReservations,
+        });
+        const availableCount = Math.max(0, site.capacity - reservedCount);
+
+        minAvailableCount = Math.min(minAvailableCount, availableCount);
+        maxReservedCount = Math.max(maxReservedCount, reservedCount);
+      }
+
+      const availableCount = Number.isFinite(minAvailableCount) ? minAvailableCount : 0;
+
+      return {
+        siteId: site.id,
+        siteNumber: site.siteNumber,
+        capacity: site.capacity,
+        reservedCount: maxReservedCount,
+        availableCount,
+        isAvailable: availableCount > 0,
+      };
+    });
 }
 
 export async function getPlanAvailabilityDays(monthDates: string[]) {
@@ -340,6 +460,7 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
         concurrentReservations,
         remainingConcurrentReservations,
         availableSites: effectiveAvailableSites,
+        isBookable: salesWindow.isAvailable,
         mark,
       };
     }),
@@ -354,10 +475,16 @@ export async function validateInventory(
     input.checkOutDate,
   );
   const plan = plans.find((item) => item.id === input.planId);
-  const salesWindow = plan ? evaluatePlanBookablePeriod(plan, input.checkInDate, input.checkOutDate) : null;
+  const salesWindow = plan
+    ? evaluatePlanBookablePeriod(plan, input.checkInDate, input.checkOutDate)
+    : null;
 
   if (!plan) {
-    return { valid: false, errors: ['対象プランが見つかりません。'], availableSiteCount: 0 };
+    return {
+      valid: false,
+      errors: ['対象プランが見つかりません。'],
+      availableSiteCount: 0,
+    };
   }
 
   if (!input.skipSalesWindow && salesWindow && !salesWindow.isAvailable) {
@@ -410,13 +537,29 @@ export async function validateInventory(
       continue;
     }
 
-    const overlappingSiteReservation = relevantReservations.find(
-      (reservation) =>
-        getSelectedSiteNumbers(reservation).includes(siteNumber) &&
-        overlaps(reservation, input.checkInDate, input.checkOutDate),
-    );
+    let minAvailableCount = Number.POSITIVE_INFINITY;
 
-    if (overlappingSiteReservation) {
+    for (const date of stayDates) {
+      const closedSiteIds = getClosedSiteIdsByDate(salesRule, date);
+      if (
+        targetSite.status !== 'active' ||
+        !targetSite.isPublished ||
+        closedSiteIds.has(targetSite.id)
+      ) {
+        minAvailableCount = 0;
+        continue;
+      }
+
+      const reservedCount = getSiteReservationCountForDate({
+        date,
+        siteNumber,
+        reservations: relevantReservations,
+      });
+      const availableCount = Math.max(0, targetSite.capacity - reservedCount);
+      minAvailableCount = Math.min(minAvailableCount, availableCount);
+    }
+
+    if (Math.max(0, Number.isFinite(minAvailableCount) ? minAvailableCount : 0) <= 0) {
       errors.push(`指定サイト ${siteNumber} は選択日程では満枠です。`);
     }
   }
@@ -442,7 +585,9 @@ export async function validateInventory(
   }
 
   if (requestedSiteCount > minAvailableSites) {
-    errors.push(`選択日程で予約できる残サイト数は ${Math.max(minAvailableSites, 0)} です。`);
+    errors.push(
+      `選択日程で予約できる残りサイト数は ${Math.max(minAvailableSites, 0)} です。`,
+    );
   }
 
   if (maxConcurrentReservations >= plan.maxConcurrentReservations) {

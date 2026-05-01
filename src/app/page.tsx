@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { fetchEvents } from '@/lib/admin/fetchData';
-import { getPlanAvailabilityForStay, getStayDates } from '@/lib/bookingAvailability';
+import { fetchEvents, fetchPlans } from '@/lib/admin/fetchData';
+import {
+  getPlanAvailabilityDays,
+  getPlanAvailabilityForStay,
+  getStayDates,
+  type PlanAvailabilityDay,
+} from '@/lib/bookingAvailability';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { useLiff } from '@/contexts/LiffContext';
-import type { AdminEvent } from '@/types/admin';
+import type { AdminEvent, AdminPlan } from '@/types/admin';
 
 function calcNights(checkIn: string, checkOut: string) {
   const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
@@ -16,6 +21,58 @@ function calcNights(checkIn: string, checkOut: string) {
 function todayISO() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function toISODate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(dateStr: string, days: number) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return toISODate(date);
+}
+
+function monthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, count: number) {
+  return new Date(date.getFullYear(), date.getMonth() + count, 1);
+}
+
+function getMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getCalendarGridDates(monthDate: Date) {
+  const first = monthStart(monthDate);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return date;
+  });
+}
+
+function isSameMonth(date: Date, monthDate: Date) {
+  return date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth();
+}
+
+function isMonthBefore(a: Date, b: Date) {
+  return a.getFullYear() < b.getFullYear() || (a.getFullYear() === b.getFullYear() && a.getMonth() < b.getMonth());
+}
+
+function isMonthAfter(a: Date, b: Date) {
+  return a.getFullYear() > b.getFullYear() || (a.getFullYear() === b.getFullYear() && a.getMonth() > b.getMonth());
+}
+
+function getPlanBookableBounds(plan: AdminPlan | undefined, today: string) {
+  const start = plan?.salesStartDate && plan.salesStartDate > today ? plan.salesStartDate : today;
+  const fallbackEnd = addMonths(new Date(`${start}T00:00:00`), 12);
+  const end = plan?.salesEndDate ?? toISODate(fallbackEnd);
+  return { start, end };
 }
 
 function isEventActiveOnDate(event: AdminEvent, date: string) {
@@ -43,6 +100,11 @@ export default function Home() {
   const router = useRouter();
   const { stay, setStay, setLineProfile } = useBookingDraftStore();
   const { isReady, profile } = useLiff();
+  const [plans, setPlans] = useState<AdminPlan[]>([]);
+  const [selectedCalendarPlanId, setSelectedCalendarPlanId] = useState('');
+  const [calendarMonth, setCalendarMonth] = useState(() => monthStart(new Date()));
+  const [availabilityDays, setAvailabilityDays] = useState<PlanAvailabilityDay[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
 
@@ -58,7 +120,36 @@ export default function Home() {
 
   useEffect(() => {
     fetchEvents().then(setEvents);
+    fetchPlans().then((items) => {
+      const publishedPlans = items.filter((plan) => plan.isPublished);
+      setPlans(publishedPlans);
+      setSelectedCalendarPlanId((current) => current || publishedPlans[0]?.id || '');
+    });
   }, []);
+
+  useEffect(() => {
+    const monthDates = getCalendarGridDates(calendarMonth).map(toISODate);
+    let active = true;
+    setCalendarLoading(true);
+
+    getPlanAvailabilityDays(monthDates)
+      .then((items) => {
+        if (!active) return;
+        setAvailabilityDays(items);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAvailabilityDays([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setCalendarLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [calendarMonth]);
 
   useEffect(() => {
     if (!stay.checkIn || !stay.checkOut) {
@@ -77,6 +168,38 @@ export default function Home() {
   }, [stay.checkIn, stay.checkOut]);
 
   const today = useMemo(() => todayISO(), []);
+  const selectedCalendarPlan = useMemo(
+    () => plans.find((plan) => plan.id === selectedCalendarPlanId),
+    [plans, selectedCalendarPlanId],
+  );
+  const calendarBounds = useMemo(
+    () => getPlanBookableBounds(selectedCalendarPlan, today),
+    [selectedCalendarPlan, today],
+  );
+  const minCalendarMonth = useMemo(() => monthStart(new Date(`${calendarBounds.start}T00:00:00`)), [calendarBounds.start]);
+  const maxCalendarMonth = useMemo(() => monthStart(new Date(`${calendarBounds.end}T00:00:00`)), [calendarBounds.end]);
+  const canGoPrevMonth = !isMonthBefore(addMonths(calendarMonth, -1), minCalendarMonth);
+  const canGoNextMonth = !isMonthAfter(addMonths(calendarMonth, 1), maxCalendarMonth);
+  const calendarGridDates = useMemo(() => getCalendarGridDates(calendarMonth), [calendarMonth]);
+  const availabilityByDate = useMemo(
+    () =>
+      new Map(
+        availabilityDays
+          .filter((item) => item.planId === selectedCalendarPlanId)
+          .map((item) => [item.date, item]),
+      ),
+    [availabilityDays, selectedCalendarPlanId],
+  );
+
+  useEffect(() => {
+    if (!selectedCalendarPlan) return;
+    if (isMonthBefore(calendarMonth, minCalendarMonth)) {
+      setCalendarMonth(minCalendarMonth);
+    } else if (isMonthAfter(calendarMonth, maxCalendarMonth)) {
+      setCalendarMonth(maxCalendarMonth);
+    }
+  }, [calendarMonth, maxCalendarMonth, minCalendarMonth, selectedCalendarPlan]);
+
   const nights = useMemo(
     () => (stay.checkIn && stay.checkOut ? calcNights(stay.checkIn, stay.checkOut) : 0),
     [stay.checkIn, stay.checkOut],
@@ -148,6 +271,31 @@ export default function Home() {
             宿泊日と人数を選ぶと、次の画面で予約可能なプランを確認できます。
           </p>
         </header>
+
+        <AvailabilityCalendarSection
+          plans={plans}
+          selectedPlanId={selectedCalendarPlanId}
+          onSelectPlan={(planId) => setSelectedCalendarPlanId(planId)}
+          calendarMonth={calendarMonth}
+          onChangeMonth={setCalendarMonth}
+          canGoPrevMonth={canGoPrevMonth}
+          canGoNextMonth={canGoNextMonth}
+          gridDates={calendarGridDates}
+          availabilityByDate={availabilityByDate}
+          loading={calendarLoading}
+          currentMonthKey={getMonthKey(calendarMonth)}
+          today={today}
+          bookingStart={calendarBounds.start}
+          bookingEnd={calendarBounds.end}
+          selectedCheckIn={stay.checkIn}
+          onSelectDate={(date) => {
+            setStay({
+              checkIn: date,
+              checkOut: addDays(date, 1),
+              nights: 1,
+            });
+          }}
+        />
 
         <section className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-base font-semibold text-slate-800">宿泊日を選ぶ</h2>
@@ -310,5 +458,176 @@ function Counter({
         </button>
       </div>
     </div>
+  );
+}
+
+function AvailabilityCalendarSection({
+  plans,
+  selectedPlanId,
+  onSelectPlan,
+  calendarMonth,
+  onChangeMonth,
+  canGoPrevMonth,
+  canGoNextMonth,
+  gridDates,
+  availabilityByDate,
+  loading,
+  currentMonthKey,
+  today,
+  bookingStart,
+  bookingEnd,
+  selectedCheckIn,
+  onSelectDate,
+}: {
+  plans: AdminPlan[];
+  selectedPlanId: string;
+  onSelectPlan: (planId: string) => void;
+  calendarMonth: Date;
+  onChangeMonth: (date: Date) => void;
+  canGoPrevMonth: boolean;
+  canGoNextMonth: boolean;
+  gridDates: Date[];
+  availabilityByDate: Map<string, PlanAvailabilityDay>;
+  loading: boolean;
+  currentMonthKey: string;
+  today: string;
+  bookingStart: string;
+  bookingEnd: string;
+  selectedCheckIn: string | null;
+  onSelectDate: (date: string) => void;
+}) {
+  const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+
+  return (
+    <section className="mb-6 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">プランごとの空き状況</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              空き数はプランの同時予約上限数から、有効予約数を差し引いて表示しています。
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <button
+              type="button"
+              onClick={() => onChangeMonth(addMonths(calendarMonth, -1))}
+              disabled={!canGoPrevMonth}
+              aria-label="前月へ"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              ‹
+            </button>
+            <span className="min-w-28 text-center">
+              {calendarMonth.getFullYear()}年{calendarMonth.getMonth() + 1}月
+            </span>
+            <button
+              type="button"
+              onClick={() => onChangeMonth(addMonths(calendarMonth, 1))}
+              disabled={!canGoNextMonth}
+              aria-label="翌月へ"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {plans.length === 0 ? (
+            <span className="rounded-full bg-slate-100 px-4 py-2 text-xs text-slate-500">公開中のプランがありません</span>
+          ) : (
+            plans.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => onSelectPlan(plan.id)}
+                className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition ${
+                  selectedPlanId === plan.id
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {plan.name}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="px-3 py-4 sm:px-5">
+        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-500">
+          {weekDays.map((day) => (
+            <div key={day} className="py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {gridDates.map((date) => {
+            const isoDate = toISODate(date);
+            const day = availabilityByDate.get(isoDate);
+            const inCurrentMonth = getMonthKey(date) === currentMonthKey;
+            const outOfRange = isoDate < today || isoDate < bookingStart || isoDate > bookingEnd;
+            const bookable = Boolean(day?.isBookable) && !outOfRange && (day?.remainingConcurrentReservations ?? 0) > 0;
+            const isSelected = selectedCheckIn === isoDate;
+            const isLowStock =
+              bookable &&
+              (day?.capacity ?? 0) > 0 &&
+              (day?.availableSites ?? 0) / (day?.capacity ?? 1) < 0.1;
+            const statusLabel = outOfRange || !day?.isBookable ? '不可' : !bookable ? '満枠' : isLowStock ? '残少' : `残${day.remainingConcurrentReservations}`;
+
+            return (
+              <button
+                key={isoDate}
+                type="button"
+                onClick={() => {
+                  if (bookable) onSelectDate(isoDate);
+                }}
+                disabled={!bookable}
+                className={`min-h-20 rounded-2xl border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                    : bookable
+                      ? 'border-emerald-100 bg-emerald-50/60 hover:border-emerald-300 hover:bg-emerald-50'
+                      : 'border-slate-100 bg-slate-50 text-slate-300 grayscale'
+                } ${!inCurrentMonth ? 'opacity-45' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-1">
+                  <span className={`text-sm font-semibold ${bookable ? 'text-slate-800' : 'text-slate-400'}`}>
+                    {date.getDate()}
+                  </span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                      bookable
+                        ? isLowStock
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                        : 'bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {outOfRange || !day?.isBookable ? '×' : !bookable ? '×' : isLowStock ? '△' : '○'}
+                  </span>
+                </div>
+                <div className={`mt-2 text-[11px] font-medium ${bookable ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {loading ? '確認中' : statusLabel}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">○ 空きあり</span>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">△ 残りわずか</span>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-500">× 満枠・予約不可</span>
+        </div>
+
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          日付を押すとチェックイン日として反映され、チェックアウト日は翌日に仮設定されます。連泊の場合は下の宿泊日入力で調整してください。
+        </p>
+      </div>
+    </section>
   );
 }

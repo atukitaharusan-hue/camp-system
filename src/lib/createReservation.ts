@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import {
-  calculatePlanAccommodationAmount,
   calculateReservationPricing,
   coerceReservationPricingBreakdown,
   resolvePlanAccommodationAmount,
@@ -71,6 +70,8 @@ export async function createReservation(
         },
         {
           checkInDate: payload.check_in_date,
+          nights: payload.nights,
+          requestedSiteCount,
         },
       )
     : null;

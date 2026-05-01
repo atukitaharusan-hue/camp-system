@@ -128,7 +128,7 @@ export default function SiteEditPanel({ site, onClose, onSave }: Props) {
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="定員">
+            <Field label="指定サイト上限数">
               <input
                 type="number"
                 min={1}

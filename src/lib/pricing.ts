@@ -29,6 +29,15 @@ function normalizeLineItemAmount(value: unknown) {
   return Number.isFinite(amount) ? Math.max(0, amount) : 0;
 }
 
+function normalizePositiveCount(value: unknown) {
+  const count = Math.trunc(Number(value ?? 1));
+  return Number.isFinite(count) ? Math.max(1, count) : 1;
+}
+
+function applyStaySiteMultiplier(amount: number, context: PlanPricingContext) {
+  return normalizeLineItemAmount(amount) * normalizePositiveCount(context.nights) * normalizePositiveCount(context.requestedSiteCount);
+}
+
 function normalizeChargeUnit(value: unknown): MandatoryFeeChargeUnit {
   if (value === 'adult' || value === 'child' || value === 'infant' || value === 'guest') {
     return value;
@@ -152,10 +161,12 @@ export function resolvePlanAccommodationAmount(
 
   if (plan.pricingMode === 'per_person') {
     return {
-      amount:
+      amount: applyStaySiteMultiplier(
         normalizeLineItemAmount(plan.adultPrice) * adults +
-        normalizeLineItemAmount(plan.childPrice) * children +
-        normalizeLineItemAmount(plan.infantPrice) * infants,
+          normalizeLineItemAmount(plan.childPrice) * children +
+          normalizeLineItemAmount(plan.infantPrice) * infants,
+        context,
+      ),
       valid: true,
       reason: null,
       appliedRuleLabel: null,
@@ -165,7 +176,7 @@ export function resolvePlanAccommodationAmount(
 
   if (plan.pricingMode !== 'guest_band') {
     return {
-      amount: normalizeLineItemAmount(plan.basePrice),
+      amount: applyStaySiteMultiplier(plan.basePrice, context),
       valid: true,
       reason: null,
       appliedRuleLabel: null,
@@ -179,7 +190,7 @@ export function resolvePlanAccommodationAmount(
 
   if (!matchedRule) {
     return {
-      amount: normalizeLineItemAmount(plan.basePrice),
+      amount: applyStaySiteMultiplier(plan.basePrice, context),
       valid: true,
       reason: null,
       appliedRuleLabel: null,
@@ -199,7 +210,7 @@ export function resolvePlanAccommodationAmount(
   }
 
   return {
-    amount: normalizeLineItemAmount(matchedTier.price),
+    amount: applyStaySiteMultiplier(matchedTier.price, context),
     valid: true,
     reason: null,
     appliedRuleLabel: matchedRule.label,
@@ -207,10 +218,9 @@ export function resolvePlanAccommodationAmount(
   };
 }
 
-export function calculateAccommodationAmount(basePrice: number, requestedSiteCount: number) {
+export function calculateAccommodationAmount(basePrice: number, requestedSiteCount: number, nights = 1) {
   const normalizedBasePrice = normalizeLineItemAmount(basePrice);
-  const normalizedSiteCount = Math.max(1, Math.trunc(Number(requestedSiteCount || 1)));
-  return normalizedBasePrice * normalizedSiteCount;
+  return normalizedBasePrice * normalizePositiveCount(nights) * normalizePositiveCount(requestedSiteCount);
 }
 
 export function calculatePlanAccommodationAmount(

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import { fetchReservationByIdAdmin } from '@/lib/admin/fetchReservations';
+import { fetchPlans } from '@/lib/admin/fetchData';
 import { cancelReservation } from '@/lib/admin/updateReservation';
 import {
   fetchNotificationsByReservation,
@@ -23,6 +24,7 @@ import {
   getPaymentStatusLabel,
 } from '@/types/reservation';
 import type { Database, Json } from '@/types/database';
+import type { AdminPlan } from '@/types/admin';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -42,6 +44,12 @@ interface OptionEntry {
   [key: string]: Json | undefined;
 }
 
+interface MultiPlanItem {
+  planId: string;
+  siteCount: number;
+  siteNumbers: string[];
+}
+
 function parseOptions(json: Json): OptionEntry[] {
   if (Array.isArray(json)) {
     return json as OptionEntry[];
@@ -52,6 +60,32 @@ function parseOptions(json: Json): OptionEntry[] {
 function getSelectedSiteNumbers(value: Database['public']['Tables']['guest_reservations']['Row']['selected_site_numbers']) {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function parseMultiPlanItems(specialRequests: string | null): MultiPlanItem[] {
+  const line = (specialRequests ?? '').split('\n').find((item) => item.startsWith('MULTI_PLAN_ITEMS:'));
+  const json = line?.split(':').slice(1).join(':').trim();
+  if (!json) return [];
+
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const candidate = item as Partial<MultiPlanItem>;
+        return {
+          planId: typeof candidate.planId === 'string' ? candidate.planId : '',
+          siteCount: Math.max(1, Number(candidate.siteCount ?? 1)),
+          siteNumbers: Array.isArray(candidate.siteNumbers)
+            ? candidate.siteNumbers.filter((siteNumber): siteNumber is string => typeof siteNumber === 'string')
+            : [],
+        };
+      })
+      .filter((item): item is MultiPlanItem => Boolean(item?.planId));
+  } catch {
+    return [];
+  }
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -83,6 +117,7 @@ export default function AdminReservationDetailPage() {
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [notifications, setNotifications] = useState<Database['public']['Tables']['notification_logs']['Row'][]>([]);
   const [actionLogs, setActionLogs] = useState<Database['public']['Tables']['admin_action_logs']['Row'][]>([]);
+  const [plans, setPlans] = useState<AdminPlan[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -96,12 +131,14 @@ export default function AdminReservationDetailPage() {
       setError(null);
     }
 
-    const [notifs, logs] = await Promise.all([
+    const [notifs, logs, fetchedPlans] = await Promise.all([
       fetchNotificationsByReservation(id),
       fetchActionsByTarget('reservation', id),
+      fetchPlans(),
     ]);
     setNotifications(notifs);
     setActionLogs(logs);
+    setPlans(fetchedPlans);
     setLoading(false);
   }, [id]);
 
@@ -156,6 +193,8 @@ export default function AdminReservationDetailPage() {
     siteName: r.site_name,
     selectedSiteNumbers,
   });
+  const multiPlanItems = parseMultiPlanItems(r.special_requests);
+  const planNameMap = new Map(plans.map((plan) => [plan.id, plan.name]));
 
   return (
     <div className="max-w-3xl">

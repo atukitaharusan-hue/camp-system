@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import { supabase } from '@/lib/supabase';
+import { hasSiteSelection } from '@/lib/siteSelectionState';
 
 const POSTAL_CODE_REGEX = /^\d{3}-?\d{4}$/;
 
@@ -132,7 +133,7 @@ export default function BookingUserInfoPage() {
     router.push('/booking/terms-payment');
   }, [isValid, gender, occupation, phone, email, prefecture, city, addressLine, buildingName, referralSource, setUserInfo, router]);
 
-  if (!site.siteId) {
+  if (!hasSiteSelection(site)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-stone-50 to-emerald-50/30 px-4">
         <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">

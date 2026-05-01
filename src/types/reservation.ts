@@ -11,6 +11,7 @@ export interface ReservationDetail {
   status: ReservationStatus;
   checkInDate: string;
   checkOutDate: string;
+  nights?: number;
   guests: number;
   adults: number;
   children: number;
@@ -22,7 +23,9 @@ export interface ReservationDetail {
   checkedInAt: string | null;
   userName: string;
   userEmail: string;
+  planName?: string;
   siteNumber: string;
+  siteName?: string;
   siteType: SiteType;
   campgroundName: string;
   paymentMethod: PaymentMethod | null;

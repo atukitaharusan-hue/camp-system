@@ -1,6 +1,8 @@
 'use client';
 
+import { useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { buildReservationQrValue } from '@/lib/reservationQr';
 import { generateReceptionCode } from '@/types/reservation';
 
 interface QrDisplayCardProps {
@@ -13,16 +15,15 @@ export default function QrDisplayCard({
   reservationId,
 }: QrDisplayCardProps) {
   const receptionCode = generateReceptionCode(reservationId);
+  const qrValue = useMemo(
+    () => buildReservationQrValue(reservationId, qrToken),
+    [reservationId, qrToken],
+  );
 
   return (
     <div className="flex flex-col items-center">
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <QRCodeSVG
-          value={qrToken}
-          size={220}
-          level="M"
-          includeMargin={false}
-        />
+        <QRCodeSVG value={qrValue} size={220} level="M" includeMargin={false} />
       </div>
 
       <div className="mt-4 text-center">
@@ -38,6 +39,9 @@ export default function QrDisplayCard({
         </p>
         <p className="text-xs leading-relaxed text-gray-400">
           受付時にスタッフへ画面をご提示ください。
+        </p>
+        <p className="break-all text-[10px] leading-relaxed text-gray-300">
+          {qrValue}
         </p>
       </div>
     </div>

@@ -82,6 +82,8 @@ export default function PlansPage() {
       },
       {
         checkInDate: stay.checkIn,
+        nights: stay.nights,
+        requestedSiteCount: plan.requestedSiteCount,
       },
     );
 
@@ -191,6 +193,8 @@ export default function PlansPage() {
                       },
                       {
                         checkInDate: stay.checkIn,
+                        nights: stay.nights,
+                        requestedSiteCount: plan.requestedSiteCount,
                       },
                     );
 

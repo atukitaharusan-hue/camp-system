@@ -2,16 +2,24 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useBookingDraftStore } from '@/stores/bookingDraftStore';
+import { useBookingDraftStore, type BookingDraft } from '@/stores/bookingDraftStore';
 import { fetchOptions, fetchPlans, fetchPricingSettings } from '@/lib/admin/fetchData';
+import {
+  clearBookingFlowStorage,
+  readConfirmationSnapshot,
+  readOptionsPayload,
+  readPersistedBookingDraft,
+  setLastReservationId,
+} from '@/lib/bookingStorage';
 import { calculatePlanAccommodationAmount, calculateReservationPricing } from '@/lib/pricing';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
+import { getNormalizedSelectedSiteNumbers, hasSiteSelection } from '@/lib/siteSelectionState';
 import { generateQrToken } from '@/lib/generateQrToken';
 import { bookingToReservation } from '@/lib/bookingToReservation';
 import { createReservation } from '@/lib/createReservation';
 import { validateReservation, formatUserErrors } from '@/lib/validateReservation';
 import { generateReceptionCode } from '@/types/reservation';
+import type { OptionsPayload } from '@/types/options';
 import type { PricingLineItem, ReservationPricingBreakdown } from '@/types/pricing';
 
 function formatDate(dateStr: string): string {
@@ -31,6 +39,23 @@ function getPaymentLabel(method: string | null): string {
   if (method === 'credit_card') return 'クレジットカード';
   if (method === 'on_site') return '現地払い(現金のみ)';
   return '未選択';
+}
+
+function pickString(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+function pickNumber(
+  predicate: (value: number) => boolean,
+  ...values: Array<number | null | undefined>
+) {
+  for (const value of values) {
+    if (typeof value === 'number' && predicate(value)) return value;
+  }
+  return 0;
 }
 
 function SectionHeading({ children }: { children: ReactNode }) {
@@ -108,18 +133,253 @@ function CenterPanel({
   );
 }
 
+function mergeDraftSources({
+  storeDraft,
+  persistedDraft,
+  snapshot,
+  optionsPayload,
+}: {
+  storeDraft: BookingDraft;
+  persistedDraft: BookingDraft | null;
+  snapshot: BookingDraft | null;
+  optionsPayload: OptionsPayload | null;
+}) {
+  const selectedSiteNumbers = getNormalizedSelectedSiteNumbers({
+    siteId: pickString(
+      storeDraft.site.siteId,
+      persistedDraft?.site.siteId,
+      snapshot?.site.siteId,
+      optionsPayload?.booking.siteId,
+    ),
+    siteNumber: pickString(
+      storeDraft.site.siteNumber,
+      persistedDraft?.site.siteNumber,
+      snapshot?.site.siteNumber,
+      optionsPayload?.booking.siteNumber,
+    ),
+    siteName: pickString(
+      storeDraft.site.siteName,
+      persistedDraft?.site.siteName,
+      snapshot?.site.siteName,
+      optionsPayload?.booking.siteName,
+    ),
+    selectedSiteNumbers:
+      storeDraft.site.selectedSiteNumbers.length > 0
+        ? storeDraft.site.selectedSiteNumbers
+        : persistedDraft?.site.selectedSiteNumbers?.length
+          ? persistedDraft.site.selectedSiteNumbers
+        : snapshot?.site.selectedSiteNumbers?.length
+          ? snapshot.site.selectedSiteNumbers
+          : (optionsPayload?.booking.selectedSiteNumbers ?? []),
+  });
+
+  return {
+    stay: {
+      checkIn: pickString(
+        storeDraft.stay.checkIn,
+        persistedDraft?.stay.checkIn,
+        snapshot?.stay.checkIn,
+        optionsPayload?.booking.checkInDate,
+      ),
+      checkOut: pickString(
+        storeDraft.stay.checkOut,
+        persistedDraft?.stay.checkOut,
+        snapshot?.stay.checkOut,
+        optionsPayload?.booking.checkOutDate,
+      ),
+      nights: pickNumber(
+        (value) => value > 0,
+        storeDraft.stay.nights,
+        persistedDraft?.stay.nights,
+        snapshot?.stay.nights,
+        optionsPayload?.booking.nights,
+      ),
+      adults: pickNumber(
+        (value) => value > 0,
+        storeDraft.stay.adults,
+        persistedDraft?.stay.adults,
+        snapshot?.stay.adults,
+        optionsPayload?.booking.adults,
+      ),
+      children: pickNumber(
+        (value) => value >= 0,
+        storeDraft.stay.children,
+        persistedDraft?.stay.children,
+        snapshot?.stay.children,
+        optionsPayload?.booking.children,
+      ),
+      infants: pickNumber(
+        (value) => value >= 0,
+        storeDraft.stay.infants,
+        persistedDraft?.stay.infants,
+        snapshot?.stay.infants,
+        optionsPayload?.booking.infants,
+      ),
+    },
+    plan: {
+      ...(persistedDraft?.plan ?? storeDraft.plan),
+      ...storeDraft.plan,
+      majorCategoryId: pickString(
+        storeDraft.plan.majorCategoryId,
+        persistedDraft?.plan.majorCategoryId,
+        snapshot?.plan.majorCategoryId,
+      ),
+      minorPlanId: pickString(
+        storeDraft.plan.minorPlanId,
+        persistedDraft?.plan.minorPlanId,
+        snapshot?.plan.minorPlanId,
+        optionsPayload?.booking.planId,
+      ),
+      planName: pickString(
+        storeDraft.plan.planName,
+        persistedDraft?.plan.planName,
+        snapshot?.plan.planName,
+        optionsPayload?.booking.planName,
+      ),
+      categoryName: pickString(
+        storeDraft.plan.categoryName,
+        persistedDraft?.plan.categoryName,
+        snapshot?.plan.categoryName,
+      ),
+      requestedSiteCount: pickNumber(
+        (value) => value > 0,
+        storeDraft.plan.requestedSiteCount,
+        persistedDraft?.plan.requestedSiteCount,
+        snapshot?.plan.requestedSiteCount,
+        optionsPayload?.booking.requestedSiteCount,
+      ),
+    },
+    site: {
+      ...(persistedDraft?.site ?? storeDraft.site),
+      ...storeDraft.site,
+      siteId: pickString(
+        storeDraft.site.siteId,
+        persistedDraft?.site.siteId,
+        snapshot?.site.siteId,
+        optionsPayload?.booking.siteId,
+      ),
+      siteNumber: pickString(
+        storeDraft.site.siteNumber,
+        persistedDraft?.site.siteNumber,
+        snapshot?.site.siteNumber,
+        optionsPayload?.booking.siteNumber,
+      ),
+      siteName: pickString(
+        storeDraft.site.siteName,
+        persistedDraft?.site.siteName,
+        snapshot?.site.siteName,
+        optionsPayload?.booking.siteName,
+      ),
+      designationFee: pickNumber(
+        (value) => value >= 0,
+        storeDraft.site.designationFee,
+        persistedDraft?.site.designationFee,
+        snapshot?.site.designationFee,
+        optionsPayload?.booking.designationFee,
+      ),
+      sitePrice: pickNumber(
+        (value) => value >= 0,
+        storeDraft.site.sitePrice,
+        persistedDraft?.site.sitePrice,
+        snapshot?.site.sitePrice,
+        optionsPayload?.booking.sitePrice,
+      ),
+      selectedSiteNumbers,
+    },
+    options: {
+      rentals:
+        storeDraft.options.rentals.length > 0
+          ? storeDraft.options.rentals
+          : persistedDraft?.options.rentals?.length
+            ? persistedDraft.options.rentals
+          : (snapshot?.options.rentals ?? []),
+      events:
+        storeDraft.options.events.length > 0
+          ? storeDraft.options.events
+          : persistedDraft?.options.events?.length
+            ? persistedDraft.options.events
+          : (snapshot?.options.events ?? []),
+    },
+    policy: {
+      agreedCancellation:
+        storeDraft.policy.agreedCancellation ||
+        persistedDraft?.policy.agreedCancellation ||
+        snapshot?.policy.agreedCancellation ||
+        false,
+      agreedTerms:
+        storeDraft.policy.agreedTerms ||
+        persistedDraft?.policy.agreedTerms ||
+        snapshot?.policy.agreedTerms ||
+        false,
+      agreedSns:
+        storeDraft.policy.agreedSns ||
+        persistedDraft?.policy.agreedSns ||
+        snapshot?.policy.agreedSns ||
+        false,
+    },
+    payment: {
+      method: pickString(
+        storeDraft.payment.method,
+        persistedDraft?.payment.method,
+        snapshot?.payment.method,
+      ),
+    },
+    userInfo: {
+      gender: pickString(
+        storeDraft.userInfo.gender,
+        persistedDraft?.userInfo.gender,
+        snapshot?.userInfo.gender,
+      ),
+      occupation: pickString(
+        storeDraft.userInfo.occupation,
+        persistedDraft?.userInfo.occupation,
+        snapshot?.userInfo.occupation,
+      ),
+      phone: pickString(
+        storeDraft.userInfo.phone,
+        persistedDraft?.userInfo.phone,
+        snapshot?.userInfo.phone,
+      ),
+      email: pickString(
+        storeDraft.userInfo.email,
+        persistedDraft?.userInfo.email,
+        snapshot?.userInfo.email,
+      ),
+      address: pickString(
+        storeDraft.userInfo.address,
+        persistedDraft?.userInfo.address,
+        snapshot?.userInfo.address,
+      ),
+      referralSource: pickString(
+        storeDraft.userInfo.referralSource,
+        persistedDraft?.userInfo.referralSource,
+        snapshot?.userInfo.referralSource,
+      ),
+    },
+    lineProfile: {
+      userId: pickString(
+        storeDraft.lineProfile.userId,
+        persistedDraft?.lineProfile.userId,
+        snapshot?.lineProfile.userId,
+      ),
+      displayName: pickString(
+        storeDraft.lineProfile.displayName,
+        persistedDraft?.lineProfile.displayName,
+        snapshot?.lineProfile.displayName,
+      ),
+      pictureUrl: pickString(
+        storeDraft.lineProfile.pictureUrl,
+        persistedDraft?.lineProfile.pictureUrl,
+        snapshot?.lineProfile.pictureUrl,
+      ),
+    },
+  };
+}
+
 export default function BookingConfirmationPage() {
-  const stay = useBookingDraftStore((state) => state.stay);
-  const plan = useBookingDraftStore((state) => state.plan);
-  const site = useBookingDraftStore((state) => state.site);
-  const options = useBookingDraftStore((state) => state.options);
-  const policy = useBookingDraftStore((state) => state.policy);
-  const payment = useBookingDraftStore((state) => state.payment);
-  const userInfo = useBookingDraftStore((state) => state.userInfo);
-  const lineProfile = useBookingDraftStore((state) => state.lineProfile);
+  const storeDraft = useBookingDraftStore((state) => state);
   const resetDraft = useBookingDraftStore((state) => state.reset);
 
-  const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allOptions, setAllOptions] = useState<{ id: string; name: string }[]>([]);
@@ -127,29 +387,20 @@ export default function BookingConfirmationPage() {
   const [isPricingLoading, setIsPricingLoading] = useState(true);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [completedReservationId, setCompletedReservationId] = useState<string | null>(null);
+  const [optionsPayload, setOptionsPayload] = useState<OptionsPayload | null>(null);
+  const [confirmationSnapshot, setConfirmationSnapshot] = useState<BookingDraft | null>(null);
+  const [persistedDraft, setPersistedDraft] = useState<BookingDraft | null>(null);
+  const [hasLoadedPayload, setHasLoadedPayload] = useState(false);
 
-  const accommodationAmount = calculatePlanAccommodationAmount(
-    {
-      pricingMode: plan.pricingMode,
-      basePrice: plan.basePrice,
-      adultPrice: plan.adultPrice,
-      childPrice: plan.childPrice,
-      infantPrice: plan.infantPrice,
-      guestBandRules: plan.guestBandRules,
-    },
-    {
-      adults: stay.adults,
-      children: stay.children,
-      infants: stay.infants,
-    },
-    {
-      checkInDate: stay.checkIn,
-    },
-  );
-
-  const optionsTotal =
-    options.rentals.reduce((sum, item) => sum + item.subtotal, 0) +
-    options.events.reduce((sum, item) => sum + item.subtotal, 0);
+  useEffect(() => {
+    try {
+      setOptionsPayload(readOptionsPayload());
+      setConfirmationSnapshot(readConfirmationSnapshot());
+      setPersistedDraft(readPersistedBookingDraft());
+    } finally {
+      setHasLoadedPayload(true);
+    }
+  }, []);
 
   useEffect(() => {
     fetchOptions().then((items) =>
@@ -157,10 +408,46 @@ export default function BookingConfirmationPage() {
     );
   }, []);
 
+  const resolved = useMemo(
+    () =>
+      mergeDraftSources({
+        storeDraft,
+        persistedDraft,
+        snapshot: confirmationSnapshot,
+        optionsPayload,
+      }),
+    [confirmationSnapshot, optionsPayload, persistedDraft, storeDraft],
+  );
+
+  const accommodationAmount = calculatePlanAccommodationAmount(
+    {
+      pricingMode: resolved.plan.pricingMode,
+      basePrice: resolved.plan.basePrice,
+      adultPrice: resolved.plan.adultPrice,
+      childPrice: resolved.plan.childPrice,
+      infantPrice: resolved.plan.infantPrice,
+      guestBandRules: resolved.plan.guestBandRules,
+    },
+    {
+      adults: resolved.stay.adults,
+      children: resolved.stay.children,
+      infants: resolved.stay.infants,
+    },
+    {
+      checkInDate: resolved.stay.checkIn,
+      nights: resolved.stay.nights,
+      requestedSiteCount: resolved.plan.requestedSiteCount,
+    },
+  );
+
+  const optionsTotal =
+    resolved.options.rentals.reduce((sum, item) => sum + item.subtotal, 0) +
+    resolved.options.events.reduce((sum, item) => sum + item.subtotal, 0);
+
   useEffect(() => {
     let active = true;
 
-    if (!plan.minorPlanId) {
+    if (!resolved.plan.minorPlanId || !resolved.stay.checkIn) {
       setPricingBreakdown(null);
       setIsPricingLoading(false);
       return () => {
@@ -174,15 +461,15 @@ export default function BookingConfirmationPage() {
     Promise.all([fetchPricingSettings(), fetchPlans()])
       .then(([pricingSettings, plans]) => {
         if (!active) return;
-        const selectedPlan = plans.find((item) => item.id === plan.minorPlanId) ?? null;
+        const selectedPlan = plans.find((item) => item.id === resolved.plan.minorPlanId) ?? null;
 
         setPricingBreakdown(
           calculateReservationPricing(pricingSettings, {
-            adults: stay.adults,
-            children: stay.children,
-            infants: stay.infants,
+            adults: resolved.stay.adults,
+            children: resolved.stay.children,
+            infants: resolved.stay.infants,
             accommodationAmount,
-            designationFeeAmount: site.designationFee,
+            designationFeeAmount: resolved.site.designationFee,
             optionsAmount: optionsTotal,
             isLodgingTaxApplicable: selectedPlan?.isLodgingTaxApplicable ?? false,
           }),
@@ -204,11 +491,12 @@ export default function BookingConfirmationPage() {
   }, [
     accommodationAmount,
     optionsTotal,
-    plan.minorPlanId,
-    site.designationFee,
-    stay.adults,
-    stay.children,
-    stay.infants,
+    resolved.plan.minorPlanId,
+    resolved.site.designationFee,
+    resolved.stay.adults,
+    resolved.stay.checkIn,
+    resolved.stay.children,
+    resolved.stay.infants,
   ]);
 
   const optionMap = useMemo(() => new Map(allOptions.map((item) => [item.id, item])), [allOptions]);
@@ -216,30 +504,31 @@ export default function BookingConfirmationPage() {
   const missingFields = useMemo(() => {
     const fields: string[] = [];
 
-    if (!stay.checkIn) fields.push('チェックイン日');
-    if (!stay.checkOut) fields.push('チェックアウト日');
-    if (!plan.minorPlanId) fields.push('プラン');
-    if (!site.siteId) fields.push('サイト');
-    if (!policy.agreedCancellation) fields.push('キャンセルポリシーへの同意');
-    if (!policy.agreedTerms) fields.push('利用規約への同意');
-    if (!payment.method) fields.push('支払い方法');
+    if (!resolved.stay.checkIn) fields.push('チェックイン日');
+    if (!resolved.stay.checkOut) fields.push('チェックアウト日');
+    if (!resolved.plan.minorPlanId) fields.push('プラン');
+    if (!hasSiteSelection(resolved.site)) fields.push('サイト');
+    if (!resolved.policy.agreedCancellation) fields.push('キャンセルポリシーへの同意');
+    if (!resolved.policy.agreedTerms) fields.push('利用規約への同意');
+    if (!resolved.payment.method) fields.push('支払い方法');
 
     return fields;
-  }, [
-    payment.method,
-    plan.minorPlanId,
-    policy.agreedCancellation,
-    policy.agreedTerms,
-    site.siteId,
-    stay.checkIn,
-    stay.checkOut,
-  ]);
+  }, [resolved]);
+
+  if (!hasLoadedPayload) {
+    return (
+      <CenterPanel
+        title="確認画面を準備しています"
+        description="入力内容を復元しています。そのままお待ちください。"
+      />
+    );
+  }
 
   if (missingFields.length > 0 && !isSubmitting) {
     return (
       <CenterPanel
         title="確認画面へ進む前に確認が必要です"
-        description={`不足している項目: ${missingFields.join(' / ')}`}
+        description={`不足している項目: ${missingFields.join(' / ')}\n\n入力済みなのに表示が戻ってしまう場合は、1つ前の画面で再度内容を確認してください。`}
         action={
           <Link
             href="/booking/terms-payment"
@@ -287,15 +576,18 @@ export default function BookingConfirmationPage() {
     setSubmitError(null);
 
     try {
+      const selectedSiteNumbers = resolved.site.selectedSiteNumbers;
+      const primarySiteNumber = resolved.site.siteNumber ?? selectedSiteNumbers[0] ?? '';
+
       const validation = await validateReservation({
-        siteNumber: site.siteNumber ?? '',
-        checkInDate: stay.checkIn!,
-        checkOutDate: stay.checkOut!,
-        guests: stay.adults + stay.children + stay.infants,
+        siteNumber: primarySiteNumber,
+        checkInDate: resolved.stay.checkIn!,
+        checkOutDate: resolved.stay.checkOut!,
+        guests: resolved.stay.adults + resolved.stay.children + resolved.stay.infants,
         source: 'web',
-        planId: plan.minorPlanId,
-        requestedSiteCount: plan.requestedSiteCount,
-        selectedSiteNumbers: site.selectedSiteNumbers,
+        planId: resolved.plan.minorPlanId,
+        requestedSiteCount: resolved.plan.requestedSiteCount,
+        selectedSiteNumbers,
       });
 
       if (!validation.valid) {
@@ -304,22 +596,22 @@ export default function BookingConfirmationPage() {
         return;
       }
 
-      if (!lineProfile.userId) {
+      if (!resolved.lineProfile.userId) {
         setSubmitError('LINEログイン情報が見つかりません。LINEアプリからアクセスし直してください。');
         setIsSubmitting(false);
         return;
       }
 
-      const draft = {
-        stay,
-        site,
-        options,
-        policy,
-        payment,
-        userInfo,
-        plan,
-        lineProfile,
-        meta: { version: 1, updatedAt: 0 },
+      const draft: BookingDraft = {
+        stay: resolved.stay,
+        site: resolved.site,
+        options: resolved.options,
+        policy: resolved.policy,
+        payment: resolved.payment,
+        userInfo: resolved.userInfo,
+        plan: resolved.plan,
+        lineProfile: resolved.lineProfile,
+        meta: { version: 1, updatedAt: Date.now() },
       };
 
       const payload = bookingToReservation({
@@ -336,15 +628,13 @@ export default function BookingConfirmationPage() {
         return;
       }
 
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem('lastReservationId', result.reservation.id);
-      }
-
+      clearBookingFlowStorage();
+      setLastReservationId(result.reservation.id);
       setCompletedReservationId(result.reservation.id);
       resetDraft();
       setIsSubmitting(false);
     } catch {
-      setSubmitError('予約確定時にエラーが発生しました。時間をおいて再度お試しください。');
+      setSubmitError('予約確定で通信エラーが発生しました。時間をおいてもう一度お試しください。');
       setIsSubmitting(false);
     }
   };
@@ -353,7 +643,7 @@ export default function BookingConfirmationPage() {
     return (
       <CenterPanel
         title="予約を確定しました"
-        description={'予約情報を保存しました。\n完了画面への自動遷移は行わず、この画面から確実に次の操作へ進めるようにしています。'}
+        description={'予約情報を保存しました。\n受付コードを控えて、必要に応じて完了画面へ進んでください。'}
         action={
           <div className="flex flex-col gap-3">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -365,13 +655,6 @@ export default function BookingConfirmationPage() {
             >
               QR画面を開く
             </a>
-            <Link
-              href={`/reservation/${completedReservationId}/qr`}
-              prefetch={false}
-              className="inline-block rounded-xl border border-emerald-300 px-6 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
-            >
-              同じ画面で開き直す
-            </Link>
             <Link
               href="/"
               className="inline-block rounded-xl border border-gray-300 px-6 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
@@ -389,7 +672,7 @@ export default function BookingConfirmationPage() {
       <div className="container mx-auto max-w-2xl px-4">
         <div className="mb-10 text-center">
           <Link href="/booking/terms-payment" className="inline-block text-sm text-emerald-700 transition-colors hover:text-emerald-800">
-            規約確認へ戻る
+            前の画面へ戻る
           </Link>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">予約内容の最終確認</h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-500 sm:text-base">
@@ -400,21 +683,21 @@ export default function BookingConfirmationPage() {
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
           <SectionHeading>宿泊情報</SectionHeading>
           <div className="space-y-2.5 text-sm">
-            <SummaryRow label="チェックイン" value={stay.checkIn ? formatDate(stay.checkIn) : '-'} />
-            <SummaryRow label="チェックアウト" value={stay.checkOut ? formatDate(stay.checkOut) : '-'} />
-            <SummaryRow label="宿泊数" value={`${stay.nights}泊`} />
+            <SummaryRow label="チェックイン" value={resolved.stay.checkIn ? formatDate(resolved.stay.checkIn) : '-'} />
+            <SummaryRow label="チェックアウト" value={resolved.stay.checkOut ? formatDate(resolved.stay.checkOut) : '-'} />
+            <SummaryRow label="泊数" value={`${resolved.stay.nights}泊`} />
             <SummaryRow
               label="人数"
-              value={`大人(中学生以上) ${stay.adults}名 / 子ども ${stay.children}名 / 幼児 ${stay.infants}名`}
+              value={`大人(中学生以上) ${resolved.stay.adults}名 / 子ども ${resolved.stay.children}名 / 幼児 ${resolved.stay.infants}名`}
             />
           </div>
         </section>
 
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <SectionHeading>サイト情報</SectionHeading>
+          <SectionHeading>プラン・サイト情報</SectionHeading>
           <div className="space-y-2.5 text-sm">
-            <SummaryRow label="プラン" value={plan.planName ?? '-'} />
-            <SummaryRow label="サイト" value={getSiteSelectionLabel(site)} />
+            <SummaryRow label="プラン" value={resolved.plan.planName ?? '-'} />
+            <SummaryRow label="サイト" value={getSiteSelectionLabel(resolved.site)} />
             <SummaryRow label="宿泊料金" value={`¥${formatPrice(confirmedPricingBreakdown.accommodationAmount)}`} />
             {confirmedPricingBreakdown.designationFeeAmount > 0 && (
               <SummaryRow
@@ -427,11 +710,11 @@ export default function BookingConfirmationPage() {
 
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
           <SectionHeading>オプション</SectionHeading>
-          {options.rentals.length === 0 && options.events.length === 0 ? (
+          {resolved.options.rentals.length === 0 && resolved.options.events.length === 0 ? (
             <p className="text-sm text-gray-400">オプションの選択はありません。</p>
           ) : (
             <div className="space-y-2 text-sm">
-              {options.rentals.map((rental) => (
+              {resolved.options.rentals.map((rental) => (
                 <div key={rental.optionId} className="flex justify-between gap-3">
                   <span className="text-gray-600">
                     {optionMap.get(rental.optionId)?.name ?? 'オプション'}
@@ -441,7 +724,7 @@ export default function BookingConfirmationPage() {
                   <span className="font-medium">¥{formatPrice(rental.subtotal)}</span>
                 </div>
               ))}
-              {options.events.map((event) => (
+              {resolved.options.events.map((event) => (
                 <div key={event.optionId} className="flex justify-between gap-3">
                   <span className="text-gray-600">
                     {optionMap.get(event.optionId)?.name ?? 'イベント'}
@@ -457,9 +740,9 @@ export default function BookingConfirmationPage() {
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
           <SectionHeading>同意状況</SectionHeading>
           <div className="space-y-3">
-            <CheckBadge checked={policy.agreedCancellation} label="キャンセルポリシーに同意済み" />
-            <CheckBadge checked={policy.agreedTerms} label="利用規約に同意済み" />
-            <CheckBadge checked={policy.agreedSns} label="SNS案内に同意済み" />
+            <CheckBadge checked={resolved.policy.agreedCancellation} label="キャンセルポリシーに同意済み" />
+            <CheckBadge checked={resolved.policy.agreedTerms} label="利用規約に同意済み" />
+            <CheckBadge checked={resolved.policy.agreedSns} label="SNS連携に同意済み" />
           </div>
         </section>
 
@@ -472,7 +755,7 @@ export default function BookingConfirmationPage() {
               </svg>
             </span>
             <div>
-              <p className="text-sm font-semibold text-gray-800">{getPaymentLabel(payment.method)}</p>
+              <p className="text-sm font-semibold text-gray-800">{getPaymentLabel(resolved.payment.method)}</p>
             </div>
           </div>
         </section>
@@ -502,7 +785,7 @@ export default function BookingConfirmationPage() {
           <h3 className="mb-2 text-sm font-semibold text-amber-800">ご確認ください</h3>
           <ul className="list-inside list-disc space-y-1.5 text-xs leading-relaxed text-amber-700">
             <li>予約確定時に在庫と料金を再確認します。</li>
-            <li>確定後にチェックイン用 QR コードを表示します。</li>
+            <li>確定後にチェックイン用の QR コードを表示します。</li>
             <li>内容に誤りがある場合は、前の画面に戻って修正してください。</li>
           </ul>
         </section>
@@ -533,7 +816,7 @@ export default function BookingConfirmationPage() {
                 : 'bg-emerald-600 text-white shadow-md hover:bg-emerald-700 active:scale-[0.98]'
             }`}
           >
-            {isSubmitting ? '予約確定中...' : '予約を確定する'}
+            {isSubmitting ? '予約を確定中...' : '予約を確定する'}
           </button>
         </div>
       </div>

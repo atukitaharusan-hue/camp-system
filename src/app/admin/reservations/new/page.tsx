@@ -6,12 +6,22 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { createAdminReservation, validateAdminReservation, type AdminReservationInput } from '@/lib/admin/createAdminReservation';
+import { getSiteAvailabilityForStay } from '@/lib/bookingAvailability';
 import type { Database } from '@/types/database';
 import type { AdminPlan } from '@/types/admin';
 import type { SiteDetail } from '@/types/site';
 
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
+
+type PlanReservationBlock = {
+  id: string;
+  planId: string;
+  siteCount: number;
+  siteNumbers: string[];
+};
+
+type SiteAvailabilityMap = Record<string, Record<string, boolean>>;
 
 type CustomerProfile = Pick<
   AdminReservationInput,
@@ -44,6 +54,10 @@ const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
 const OCCUPATION_OPTIONS = ['会社員', '学生', '自営業', '公務員', '主婦', '無職', 'その他'];
 const CUSTOMER_PROFILE_KEY = 'admin-reservation-customer-profile';
 
+function createPlanBlock(): PlanReservationBlock {
+  return { id: crypto.randomUUID(), planId: '', siteCount: 1, siteNumbers: [''] };
+}
+
 function addDays(dateStr: string, days: number) {
   const date = new Date(`${dateStr}T00:00:00`);
   date.setDate(date.getDate() + days);
@@ -63,10 +77,26 @@ function ReservationTabs() {
   );
 }
 
+function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">
+        {label}
+        {required && <span className="ml-0.5 text-red-500">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export default function AdminReservationNewPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
+  const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
+  const [planBlocks, setPlanBlocks] = useState<PlanReservationBlock[]>([createPlanBlock()]);
+  const [siteAvailability, setSiteAvailability] = useState<SiteAvailabilityMap>({});
 
   const [form, setForm] = useState<AdminReservationInput>({
     userName: '',
@@ -94,6 +124,8 @@ export default function AdminReservationNewPage() {
     paymentStatus: 'pending',
     totalAmount: 0,
     specialRequests: '',
+    requestedSiteCount: 1,
+    planItems: [],
   });
 
   useEffect(() => {
@@ -107,32 +139,64 @@ export default function AdminReservationNewPage() {
     }
   }, []);
 
-  const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
-  const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
-
   useEffect(() => {
     fetchPlans().then(setAllPlans);
     fetchSiteDetails().then(setAllSiteDetails);
   }, []);
 
+  useEffect(() => {
+    if (!form.checkInDate || !form.checkOutDate) {
+      setSiteAvailability({});
+      return;
+    }
+
+    let active = true;
+    Promise.all(
+      planBlocks
+        .filter((block) => block.planId)
+        .map(async (block) => {
+          const items = await getSiteAvailabilityForStay(form.checkInDate, form.checkOutDate, block.planId);
+          return [
+            block.id,
+            Object.fromEntries(items.map((item) => [item.siteNumber, item.isAvailable])),
+          ] as const;
+        }),
+    ).then((entries) => {
+      if (!active) return;
+      setSiteAvailability(Object.fromEntries(entries));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [form.checkInDate, form.checkOutDate, planBlocks]);
+
   const availablePlans = useMemo(() => allPlans.filter((plan) => plan.isPublished), [allPlans]);
-
-  const availableSites = useMemo(() => {
-    if (!form.planId) return allSiteDetails;
-    const selectedPlan = allPlans.find((plan) => plan.id === form.planId);
-    if (!selectedPlan) return allSiteDetails;
-    return allSiteDetails.filter((site) => selectedPlan.targetSiteIds.includes(site.id));
-  }, [form.planId, allPlans, allSiteDetails]);
-
   const totalGuests = form.adults + form.children + form.infants;
+  const nights =
+    form.checkInDate && form.checkOutDate && form.checkOutDate > form.checkInDate
+      ? Math.ceil((new Date(form.checkOutDate).getTime() - new Date(form.checkInDate).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+  const checkOutMin = form.checkInDate ? addDays(form.checkInDate, 1) : '';
+
+  const getSitesForPlan = (planId: string) => {
+    const selectedPlan = allPlans.find((plan) => plan.id === planId);
+    if (!selectedPlan) return [];
+    return allSiteDetails.filter((site) => selectedPlan.targetSiteIds.includes(site.id));
+  };
+
+  const normalizePlanItems = (blocks = planBlocks) =>
+    blocks
+      .filter((block) => block.planId)
+      .map((block) => ({
+        planId: block.planId,
+        siteCount: Math.max(1, block.siteCount),
+        siteNumbers: block.siteNumbers.filter(Boolean),
+      }));
 
   const update = <K extends keyof AdminReservationInput>(key: K, value: AdminReservationInput[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-
-      if (key === 'planId') {
-        next.siteNumber = '';
-      }
 
       if (key === 'checkInDate') {
         next.checkOutDate =
@@ -148,22 +212,38 @@ export default function AdminReservationNewPage() {
     setError(null);
   };
 
+  const updatePlanBlock = (blockId: string, updater: (block: PlanReservationBlock) => PlanReservationBlock) => {
+    setPlanBlocks((prev) => prev.map((block) => (block.id === blockId ? updater(block) : block)));
+    setError(null);
+  };
+
+  const addPlanBlock = () => {
+    setPlanBlocks((prev) => [...prev, createPlanBlock()]);
+  };
+
+  const removePlanBlock = (blockId: string) => {
+    setPlanBlocks((prev) => (prev.length > 1 ? prev.filter((block) => block.id !== blockId) : prev));
+  };
+
   useEffect(() => {
     setForm((prev) => (prev.guests === totalGuests ? prev : { ...prev, guests: totalGuests }));
   }, [totalGuests]);
-
-  const nights =
-    form.checkInDate && form.checkOutDate && form.checkOutDate > form.checkInDate
-      ? Math.ceil((new Date(form.checkOutDate).getTime() - new Date(form.checkInDate).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-
-  const checkOutMin = form.checkInDate ? addDays(form.checkInDate, 1) : '';
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    const payload = { ...form, guests: totalGuests };
+    const planItems = normalizePlanItems();
+    const selectedSiteNumbers = planItems.flatMap((item) => item.siteNumbers);
+    const payload: AdminReservationInput = {
+      ...form,
+      guests: totalGuests,
+      planId: planItems[0]?.planId ?? '',
+      siteNumber: selectedSiteNumbers[0] ?? '',
+      requestedSiteCount: planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1,
+      planItems,
+    };
+
     const validationError = validateAdminReservation(payload);
     if (validationError) {
       setError(validationError);
@@ -204,7 +284,7 @@ export default function AdminReservationNewPage() {
   };
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <ReservationTabs />
       <h1 className="mb-6 text-xl font-bold text-gray-900">新規予約登録</h1>
 
@@ -218,7 +298,7 @@ export default function AdminReservationNewPage() {
         <section className="rounded border border-gray-200 bg-white p-5">
           <h2 className="mb-4 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">顧客情報</h2>
           <p className="mb-4 text-xs text-gray-500">
-            一度登録した顧客情報は、この端末では次回の新規予約登録時に自動で入力されます。
+            一度登録した顧客情報は、この端末では次回の新規予約登録時に自動入力されます。
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="予約者名" required>
@@ -294,10 +374,10 @@ export default function AdminReservationNewPage() {
                 className="w-full rounded border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
               />
             </Field>
-              <Field label="大人(中学生以上)" required>
+            <Field label="大人(中学生以上)" required>
               <input type="number" min={1} value={form.adults} onChange={(event) => update('adults', parseInt(event.target.value, 10) || 1)} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </Field>
-            <Field label="子ども">
+            <Field label="子供">
               <input type="number" min={0} value={form.children} onChange={(event) => update('children', parseInt(event.target.value, 10) || 0)} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </Field>
             <Field label="幼児">
@@ -306,36 +386,133 @@ export default function AdminReservationNewPage() {
             <Field label="合計人数">
               <input type="number" value={totalGuests} readOnly className="w-full rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600" />
             </Field>
-            <Field label="プラン" required>
-              <select value={form.planId} onChange={(event) => update('planId', event.target.value)} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
-                <option value="">選択してください</option>
-                {availablePlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="サイト番号">
-                <select value={form.siteNumber} onChange={(event) => update('siteNumber', event.target.value)} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
-                  <option value="">指定なしで登録する</option>
-                  {availableSites.map((site) => (
-                    <option key={site.id} value={site.siteNumber}>
-                      {site.siteNumber} - {site.siteName}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
           </div>
           {nights > 0 && <p className="mt-3 text-sm text-gray-500">{nights}泊</p>}
         </section>
 
         <section className="rounded border border-gray-200 bg-white p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-800">プラン・サイト構成</h2>
+              <p className="mt-1 text-xs text-gray-500">大カテゴリ: プラン / 中カテゴリ: サイト数 / 小カテゴリ: サイト番号</p>
+            </div>
+            <button
+              type="button"
+              onClick={addPlanBlock}
+              className="rounded-full border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+            >
+              プランを追加
+            </button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {planBlocks.map((block, blockIndex) => {
+              const selectedPlan = allPlans.find((plan) => plan.id === block.planId);
+              const sitesForPlan = getSitesForPlan(block.planId);
+              const availabilityForBlock = siteAvailability[block.id] ?? {};
+
+              return (
+                <div key={block.id} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-bold text-gray-800">プラン {blockIndex + 1}</h3>
+                    {planBlocks.length > 1 && (
+                      <button type="button" onClick={() => removePlanBlock(block.id)} className="text-xs font-medium text-red-600 hover:underline">
+                        削除
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <Field label="大カテゴリ：プラン" required>
+                      <select
+                        value={block.planId}
+                        onChange={(event) =>
+                          updatePlanBlock(block.id, (current) => ({
+                            ...current,
+                            planId: event.target.value,
+                            siteNumbers: Array.from({ length: current.siteCount }, () => ''),
+                          }))
+                        }
+                        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">選択してください</option>
+                        {availablePlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label="中カテゴリ：サイト数">
+                      <select
+                        value={block.siteCount}
+                        onChange={(event) => {
+                          const nextCount = Math.max(1, Number(event.target.value));
+                          updatePlanBlock(block.id, (current) => ({
+                            ...current,
+                            siteCount: nextCount,
+                            siteNumbers: Array.from({ length: nextCount }, (_, index) => current.siteNumbers[index] ?? ''),
+                          }));
+                        }}
+                        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        {Array.from({ length: Math.max(1, selectedPlan?.maxConcurrentReservations ?? 10) }, (_, index) => index + 1).map((count) => (
+                          <option key={count} value={count}>
+                            {count}サイト
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-gray-600">小カテゴリ：サイト番号</p>
+                      {Array.from({ length: block.siteCount }, (_, siteIndex) => (
+                        <select
+                          key={`${block.id}-${siteIndex}`}
+                          value={block.siteNumbers[siteIndex] ?? ''}
+                          onChange={(event) =>
+                            updatePlanBlock(block.id, (current) => ({
+                              ...current,
+                              siteNumbers: current.siteNumbers.map((siteNumber, index) =>
+                                index === siteIndex ? event.target.value : siteNumber,
+                              ),
+                            }))
+                          }
+                          disabled={!block.planId}
+                          className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm disabled:bg-gray-100"
+                        >
+                          <option value="">指定なし</option>
+                          {sitesForPlan.map((site) => {
+                            const isAvailable = availabilityForBlock[site.siteNumber] ?? true;
+                            const alreadySelected = block.siteNumbers.some(
+                              (siteNumber, index) => index !== siteIndex && siteNumber === site.siteNumber,
+                            );
+                            const disabled = !isAvailable || alreadySelected;
+                            return (
+                              <option key={site.id} value={site.siteNumber} disabled={disabled}>
+                                {site.siteNumber} - {site.siteName}
+                                {!isAvailable ? '（満枠）' : alreadySelected ? '（選択済み）' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ))}
+                      {form.checkInDate && form.checkOutDate && block.planId && (
+                        <p className="text-xs text-gray-500">満枠または同じプラン内で選択済みのサイトは選択できません。</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded border border-gray-200 bg-white p-5">
           <h2 className="mb-4 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">支払い情報</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="合計金額（円）" required>
+            <Field label="合計金額（税込）" required>
               <input type="number" min={0} value={form.totalAmount} onChange={(event) => update('totalAmount', parseInt(event.target.value, 10) || 0)} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </Field>
             <div />
@@ -348,7 +525,7 @@ export default function AdminReservationNewPage() {
                 ))}
               </select>
             </Field>
-            <Field label="支払い状態" required>
+            <Field label="支払い状況" required>
               <select value={form.paymentStatus} onChange={(event) => update('paymentStatus', event.target.value as PaymentStatus)} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
                 {PAYMENT_STATUS_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -380,18 +557,6 @@ export default function AdminReservationNewPage() {
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
-  return (
-    <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">
-        {label}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
-      </label>
-      {children}
     </div>
   );
 }

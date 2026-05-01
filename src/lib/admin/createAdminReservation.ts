@@ -36,6 +36,11 @@ export interface AdminReservationInput {
   specialRequests: string;
   totalAmount: number;
   requestedSiteCount?: number;
+  planItems?: Array<{
+    planId: string;
+    siteCount: number;
+    siteNumbers: string[];
+  }>;
   adminEmail?: string;
 }
 
@@ -62,10 +67,12 @@ export function validateAdminReservation(input: AdminReservationInput): string |
 }
 
 function buildCustomerMemo(input: AdminReservationInput) {
+  const normalizedPlanItems = normalizePlanItems(input);
   return [
     `PLAN_ID: ${input.planId}`,
-    `REQUESTED_SITE_COUNT: ${input.requestedSiteCount ?? 1}`,
-    `SELECTED_SITE_NUMBERS: ${input.siteNumber ? input.siteNumber : ''}`,
+    `REQUESTED_SITE_COUNT: ${getTotalRequestedSiteCount(input)}`,
+    `SELECTED_SITE_NUMBERS: ${getAllSelectedSiteNumbers(input).join(',')}`,
+    `MULTI_PLAN_ITEMS: ${JSON.stringify(normalizedPlanItems)}`,
     `GENDER: ${input.gender || ''}`,
     `OCCUPATION: ${input.occupation || ''}`,
     `POSTAL_CODE: ${input.postalCode || ''}`,
@@ -82,28 +89,87 @@ function buildCustomerMemo(input: AdminReservationInput) {
     .join('\n');
 }
 
+function normalizePlanItems(input: AdminReservationInput) {
+  const sourceItems = input.planItems?.length
+    ? input.planItems
+    : [
+        {
+          planId: input.planId,
+          siteCount: input.requestedSiteCount ?? 1,
+          siteNumbers: input.siteNumber ? [input.siteNumber] : [],
+        },
+      ];
+
+  return sourceItems
+    .map((item) => {
+      const siteCount = Math.max(1, Math.trunc(Number(item.siteCount || 1)));
+      const siteNumbers = item.siteNumbers
+        .map((siteNumber) => siteNumber.trim())
+        .filter((siteNumber) => siteNumber.length > 0)
+        .slice(0, siteCount);
+      return {
+        planId: item.planId.trim(),
+        siteCount,
+        siteNumbers,
+      };
+    })
+    .filter((item) => item.planId.length > 0);
+}
+
+function getTotalRequestedSiteCount(input: AdminReservationInput) {
+  const planItems = normalizePlanItems(input);
+  return planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1;
+}
+
+function getAllSelectedSiteNumbers(input: AdminReservationInput) {
+  return Array.from(
+    new Set(normalizePlanItems(input).flatMap((item) => item.siteNumbers)),
+  );
+}
+
 export async function createAdminReservation(input: AdminReservationInput): Promise<AdminCreateResult> {
   const formError = validateAdminReservation(input);
   if (formError) {
     return { success: false, error: formError };
   }
 
-  const validation = await validateReservation({
-    siteNumber: input.siteNumber,
-    checkInDate: input.checkInDate,
-    checkOutDate: input.checkOutDate,
-    guests: input.guests,
-    source: 'admin',
-    planId: input.planId,
-    requestedSiteCount: input.requestedSiteCount ?? 1,
-    selectedSiteNumbers: input.siteNumber ? [input.siteNumber] : [],
-  });
+  const planItems = normalizePlanItems(input);
+  if (planItems.length === 0) {
+    return { success: false, error: 'プランを1つ以上選択してください。' };
+  }
 
-  if (!validation.valid) {
-    return { success: false, error: formatAdminErrors(validation.errors) };
+  const allSelectedSiteNumbersForValidation = getAllSelectedSiteNumbers(input);
+  const rawSelectedCount = planItems.reduce((sum, item) => sum + item.siteNumbers.length, 0);
+  if (allSelectedSiteNumbersForValidation.length !== rawSelectedCount) {
+    return { success: false, error: '同じサイト番号を複数のプランで重複して選択することはできません。' };
+  }
+
+  const validationErrors: string[] = [];
+  for (const item of planItems) {
+    const validation = await validateReservation({
+      siteNumber: item.siteNumbers[0] ?? '',
+      checkInDate: input.checkInDate,
+      checkOutDate: input.checkOutDate,
+      guests: input.guests,
+      source: 'admin',
+      planId: item.planId,
+      requestedSiteCount: item.siteCount,
+      selectedSiteNumbers: item.siteNumbers,
+    });
+
+    if (!validation.valid) {
+      validationErrors.push(formatAdminErrors(validation.errors));
+    }
+  }
+
+  if (validationErrors.length > 0) {
+    return { success: false, error: validationErrors.join('\n') };
   }
 
   const nights = calculateNights(input.checkInDate, input.checkOutDate);
+  const primaryPlanId = planItems[0]?.planId ?? input.planId;
+  const selectedSiteNumbers = getAllSelectedSiteNumbers(input);
+  const totalRequestedSiteCount = getTotalRequestedSiteCount(input);
 
   const { data, error } = await supabase
     .from('guest_reservations')
@@ -111,7 +177,7 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
       user_name: input.userName.trim(),
       user_phone: input.userPhone.trim() || null,
       user_email: input.userEmail.trim() || null,
-      plan_id: input.planId,
+      plan_id: primaryPlanId,
       check_in_date: input.checkInDate,
       check_out_date: input.checkOutDate,
       nights,
@@ -119,9 +185,9 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
       adults: input.adults,
       children: input.children,
       infants: input.infants,
-      reserved_site_count: input.requestedSiteCount ?? 1,
-      selected_site_numbers: input.siteNumber ? [input.siteNumber] : [],
-      site_number: input.siteNumber.trim() || null,
+      reserved_site_count: totalRequestedSiteCount,
+      selected_site_numbers: selectedSiteNumbers,
+      site_number: selectedSiteNumbers[0] ?? null,
       total_amount: input.totalAmount,
       status: 'confirmed',
       payment_method: input.paymentMethod,
@@ -156,6 +222,7 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
         infants: data.infants,
         site_number: data.site_number,
         reserved_site_count: data.reserved_site_count,
+        plan_items: planItems,
       },
     });
   }

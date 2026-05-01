@@ -3,11 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getSiteAvailabilityForStay } from '@/lib/bookingAvailability';
+import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
 import { resolvePlanAccommodationAmount } from '@/lib/pricing';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
-import { fetchSiteDetails, fetchSiteMapSettings } from '@/lib/admin/fetchData';
 import type { AdminSiteMapSettings } from '@/types/admin';
 import type { SiteDetail } from '@/types/site';
+
+type SiteAvailabilityMap = Record<
+  string,
+  {
+    reservedCount: number;
+    availableCount: number;
+    isAvailable: boolean;
+  }
+>;
 
 export default function SitesPage() {
   const router = useRouter();
@@ -27,14 +37,11 @@ export default function SitesPage() {
     description: '',
     imageUrls: [],
   });
+  const [siteAvailability, setSiteAvailability] = useState<SiteAvailabilityMap>({});
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
-    storedSiteId && storedSiteId !== 'auto-assigned'
-      ? [storedSiteId]
-      : [],
+    storedSiteId && storedSiteId !== 'auto-assigned' ? [storedSiteId] : [],
   );
-  const [isUndesignated, setIsUndesignated] = useState(
-    storedSiteId === 'auto-assigned',
-  );
+  const [isUndesignated, setIsUndesignated] = useState(storedSiteId === 'auto-assigned');
 
   useEffect(() => {
     if (!hasStay) {
@@ -48,6 +55,28 @@ export default function SitesPage() {
     fetchSiteDetails().then(setSites);
     fetchSiteMapSettings().then(setSiteMapSettings);
   }, []);
+
+  useEffect(() => {
+    if (!stay.checkIn || !stay.checkOut || !plan.minorPlanId) {
+      setSiteAvailability({});
+      return;
+    }
+
+    getSiteAvailabilityForStay(stay.checkIn, stay.checkOut, plan.minorPlanId).then((items) => {
+      setSiteAvailability(
+        Object.fromEntries(
+          items.map((item) => [
+            item.siteId,
+            {
+              reservedCount: item.reservedCount,
+              availableCount: item.availableCount,
+              isAvailable: item.isAvailable,
+            },
+          ]),
+        ),
+      );
+    });
+  }, [plan.minorPlanId, stay.checkIn, stay.checkOut]);
 
   const compatibleSites = useMemo(
     () =>
@@ -93,14 +122,22 @@ export default function SitesPage() {
     },
     {
       checkInDate: stay.checkIn,
+      nights: stay.nights,
+      requestedSiteCount,
     },
   );
   const accommodationAmount = pricingResult.amount;
   const canSelectMore = selectedSiteIds.length < requestedSiteCount;
 
+  const selectedSitesAreAvailable = selectedSites.every((site) => {
+    const availability = siteAvailability[site.id];
+    return site.available && (availability?.isAvailable ?? true);
+  });
+
   const handleSelect = (siteId: string) => {
     const nextSite = compatibleSites.find((item) => item.id === siteId);
-    if (!nextSite || !nextSite.available) return;
+    const nextAvailability = siteAvailability[siteId];
+    if (!nextSite || !nextSite.available || !(nextAvailability?.isAvailable ?? true)) return;
 
     setIsUndesignated(false);
     setSelectedSiteIds((prev) => {
@@ -133,7 +170,7 @@ export default function SitesPage() {
         siteName:
           requestedSiteCount > 1
             ? `${requestedSiteCount}サイトを自動割当`
-            : '指定なし ※無料',
+            : '指定なし',
         sitePrice: accommodationAmount,
         siteFee: 0,
         designationFee: 0,
@@ -146,7 +183,7 @@ export default function SitesPage() {
       return;
     }
 
-    if (selectedSites.length !== requestedSiteCount) return;
+    if (selectedSites.length !== requestedSiteCount || !selectedSitesAreAvailable) return;
 
     const primarySite = selectedSites[0];
     const totalDesignationFee = selectedSites.reduce(
@@ -175,7 +212,9 @@ export default function SitesPage() {
     router.push('/booking/options');
   };
 
-  const canProceed = pricingResult.valid && (isUndesignated || selectedSites.length === requestedSiteCount);
+  const canProceed =
+    pricingResult.valid &&
+    (isUndesignated || (selectedSites.length === requestedSiteCount && selectedSitesAreAvailable));
 
   return (
     <div className="min-h-screen bg-white py-8">
@@ -187,15 +226,12 @@ export default function SitesPage() {
         </section>
 
         <div className="mb-8 text-center">
-          <Link
-            href="/booking/plans"
-            className="text-sm text-emerald-700 hover:text-emerald-800"
-          >
+          <Link href="/booking/plans" className="text-sm text-emerald-700 hover:text-emerald-800">
             プラン選択へ戻る
           </Link>
-          <h1 className="mt-4 text-3xl font-bold text-gray-900">サイト選択</h1>
+          <h1 className="mt-4 text-3xl font-bold text-gray-900">サイトを選ぶ</h1>
           <p className="mt-2 text-sm text-gray-500">
-            プランに紐づくサイトを選択してください。必要なサイト数まで複数選択できます。
+            プランに紐づくサイトを選択してください。必要なサイト数まで選択できます。
           </p>
         </div>
 
@@ -270,7 +306,7 @@ export default function SitesPage() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">サイト一覧</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  このプランで予約できるサイトを表示しています。
+                  指定サイト上限数を上限に、同日程の残り予約枠を表示しています。
                 </p>
               </div>
               <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
@@ -281,8 +317,11 @@ export default function SitesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               {compatibleSites.map((site) => {
                 const isSelected = selectedSiteIds.includes(site.id);
+                const availability = siteAvailability[site.id];
+                const isSiteAvailable = site.available && (availability?.isAvailable ?? true);
                 const disabled =
-                  !site.available || (!isSelected && !canSelectMore && !isUndesignated);
+                  (!isSelected && !isSiteAvailable) ||
+                  (!isSelected && !canSelectMore && !isUndesignated);
 
                 return (
                   <button
@@ -298,21 +337,27 @@ export default function SitesPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-900">
-                          {site.siteNumber}
-                        </h3>
+                        <h3 className="text-base font-semibold text-gray-900">{site.siteNumber}</h3>
                         <p className="text-sm text-gray-500">{site.siteName}</p>
                       </div>
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                           !site.available
                             ? 'bg-gray-100 text-gray-500'
-                            : isSelected
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-sky-100 text-sky-700'
+                            : !isSiteAvailable
+                              ? 'bg-gray-100 text-gray-500'
+                              : isSelected
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-sky-100 text-sky-700'
                         }`}
                       >
-                        {!site.available ? '満枠' : isSelected ? '選択中' : '選択可能'}
+                        {!site.available
+                          ? '受付停止'
+                          : !isSiteAvailable
+                            ? '満枠'
+                            : isSelected
+                              ? '選択中'
+                              : '選択可能'}
                       </span>
                     </div>
 
@@ -322,11 +367,12 @@ export default function SitesPage() {
                         label="指定料金"
                         value={`¥${site.designationFee.toLocaleString()}`}
                       />
-                      <SummaryItem compact label="定員" value={`${site.capacity}名`} />
+                      <SummaryItem compact label="指定サイト上限数" value={`${site.capacity}組`} />
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-gray-600">
-                      {site.description}
+                    <p className="mt-2 text-xs text-gray-500">
+                      同日程の残り予約枠: {availability?.availableCount ?? site.capacity}/{site.capacity}
                     </p>
+                    <p className="mt-3 text-sm leading-6 text-gray-600">{site.description}</p>
                   </button>
                 );
               })}

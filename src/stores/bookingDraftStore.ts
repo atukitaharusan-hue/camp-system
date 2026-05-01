@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { GuestBandSeasonRule, PlanPricingMode } from "@/types/admin";
+import { BOOKING_DRAFT_STORAGE_KEY } from "@/lib/bookingStorage";
 
 /* ─── 型定義 ─── */
 
@@ -91,6 +92,10 @@ type BookingDraftActions = {
   reset: () => void;
 };
 
+type BookingDraftStoreState = BookingDraft & {
+  hasHydrated: boolean;
+} & BookingDraftActions;
+
 /* ─── 初期値 ─── */
 
 const initialDraft: BookingDraft = {
@@ -160,10 +165,11 @@ const initialDraft: BookingDraft = {
 
 /* ─── ストア ─── */
 
-export const useBookingDraftStore = create<BookingDraft & BookingDraftActions>()(
+export const useBookingDraftStore = create<BookingDraftStoreState>()(
   persist(
     (set) => ({
       ...initialDraft,
+      hasHydrated: false,
 
       setStay: (stay) =>
         set((state) => ({
@@ -220,11 +226,30 @@ export const useBookingDraftStore = create<BookingDraft & BookingDraftActions>()
         })),
 
       reset: () =>
-        set({ ...initialDraft, meta: { version: 1, updatedAt: Date.now() } }),
+        set({
+          ...initialDraft,
+          hasHydrated: true,
+          meta: { version: 1, updatedAt: Date.now() },
+        }),
     }),
     {
-      name: "booking-draft",
-      storage: createJSONStorage(() => sessionStorage),
+      name: BOOKING_DRAFT_STORAGE_KEY,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        stay: state.stay,
+        plan: state.plan,
+        site: state.site,
+        options: state.options,
+        policy: state.policy,
+        payment: state.payment,
+        userInfo: state.userInfo,
+        lineProfile: state.lineProfile,
+        meta: state.meta,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        useBookingDraftStore.setState({ hasHydrated: true });
+      },
     },
   ),
 );

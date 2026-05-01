@@ -68,6 +68,8 @@ export interface GuestCountInput {
 
 export interface PlanPricingContext {
   checkInDate?: string | null;
+  nights?: number | null;
+  requestedSiteCount?: number | null;
 }
 
 export interface PlanAccommodationResult {

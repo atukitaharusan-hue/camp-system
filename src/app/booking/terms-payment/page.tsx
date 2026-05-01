@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { fetchOptions, fetchPlans, fetchPolicySettings, fetchPricingSettings } from '@/lib/admin/fetchData';
+import { readOptionsPayload, writeConfirmationSnapshot } from '@/lib/bookingStorage';
 import { calculatePlanAccommodationAmount, calculateReservationPricing } from '@/lib/pricing';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
+import { hasSiteSelection } from '@/lib/siteSelectionState';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
-import { STORAGE_KEY_OPTIONS_PAYLOAD, type OptionsPayload, type OptionItem } from '@/types/options';
+import type { OptionsPayload, OptionItem } from '@/types/options';
 import type { AdminPolicySettings } from '@/types/admin';
 import type { ReservationPricingBreakdown } from '@/types/pricing';
 
@@ -106,13 +108,16 @@ export default function TermsPaymentPage() {
   const stay = useBookingDraftStore((state) => state.stay);
   const site = useBookingDraftStore((state) => state.site);
   const plan = useBookingDraftStore((state) => state.plan);
+  const options = useBookingDraftStore((state) => state.options);
   const policy = useBookingDraftStore((state) => state.policy);
   const payment = useBookingDraftStore((state) => state.payment);
+  const userInfo = useBookingDraftStore((state) => state.userInfo);
+  const lineProfile = useBookingDraftStore((state) => state.lineProfile);
   const setPolicy = useBookingDraftStore((state) => state.setPolicy);
   const setPayment = useBookingDraftStore((state) => state.setPayment);
 
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
-  const hasSite = !!site.siteId;
+  const hasSite = hasSiteSelection(site);
 
   useEffect(() => {
     if (!hasStay) {
@@ -140,10 +145,7 @@ export default function TermsPaymentPage() {
 
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem(STORAGE_KEY_OPTIONS_PAYLOAD);
-      if (stored) {
-        setPayload(JSON.parse(stored) as OptionsPayload);
-      }
+      setPayload(readOptionsPayload() as OptionsPayload | null);
     } finally {
       setIsLoading(false);
     }
@@ -174,6 +176,8 @@ export default function TermsPaymentPage() {
         },
         {
           checkInDate: payload.booking.checkInDate,
+          nights: payload.booking.nights,
+          requestedSiteCount: payload.booking.requestedSiteCount,
         },
       );
       setPricingBreakdown(
@@ -198,6 +202,8 @@ export default function TermsPaymentPage() {
                   },
                   {
                     checkInDate: stay.checkIn,
+                    nights: stay.nights,
+                    requestedSiteCount: plan.requestedSiteCount,
                   },
                 )
               : fallbackAccommodationAmount,
@@ -207,7 +213,22 @@ export default function TermsPaymentPage() {
         }),
       );
     });
-  }, [payload, plan.adultPrice, plan.basePrice, plan.childPrice, plan.guestBandRules, plan.infantPrice, plan.minorPlanId, plan.pricingMode, stay.adults, stay.checkIn, stay.children, stay.infants]);
+  }, [
+    payload,
+    plan.adultPrice,
+    plan.basePrice,
+    plan.childPrice,
+    plan.guestBandRules,
+    plan.infantPrice,
+    plan.minorPlanId,
+    plan.pricingMode,
+    plan.requestedSiteCount,
+    stay.adults,
+    stay.checkIn,
+    stay.children,
+    stay.infants,
+    stay.nights,
+  ]);
 
   const optionMap = useMemo(() => new Map(allOptions.map((item) => [item.id, item])), [allOptions]);
 
@@ -224,6 +245,18 @@ export default function TermsPaymentPage() {
   );
 
   const canProceed = agreedCancelPolicy && agreedTerms && !!selectedPayment;
+
+  useEffect(() => {
+    setPolicy({
+      agreedCancellation: agreedCancelPolicy,
+      agreedTerms,
+      agreedSns,
+    });
+  }, [agreedCancelPolicy, agreedSns, agreedTerms, setPolicy]);
+
+  useEffect(() => {
+    setPayment({ method: selectedPayment });
+  }, [selectedPayment, setPayment]);
 
   if (isLoading) {
     return (
@@ -268,6 +301,8 @@ export default function TermsPaymentPage() {
         },
         {
           checkInDate: stay.checkIn,
+          nights: stay.nights,
+          requestedSiteCount: plan.requestedSiteCount,
         },
       )
     : calculatePlanAccommodationAmount(
@@ -286,6 +321,8 @@ export default function TermsPaymentPage() {
         },
         {
           checkInDate: booking.checkInDate,
+          nights: booking.nights,
+          requestedSiteCount: booking.requestedSiteCount,
         },
       );
   const totalAmount =
@@ -294,12 +331,26 @@ export default function TermsPaymentPage() {
 
   const handleProceed = () => {
     if (!canProceed || !selectedPayment) return;
-    setPolicy({
-      agreedCancellation: agreedCancelPolicy,
-      agreedTerms,
-      agreedSns,
+    writeConfirmationSnapshot({
+      stay,
+      plan,
+      site,
+      options,
+      policy: {
+        agreedCancellation: agreedCancelPolicy,
+        agreedTerms,
+        agreedSns,
+      },
+      payment: {
+        method: selectedPayment,
+      },
+      userInfo,
+      lineProfile,
+      meta: {
+        version: 1,
+        updatedAt: Date.now(),
+      },
     });
-    setPayment({ method: selectedPayment });
     router.push('/booking/confirmation');
   };
 

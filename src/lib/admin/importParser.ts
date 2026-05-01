@@ -164,20 +164,6 @@ export function validateRow(
     addFieldError(fieldErrors, errors, 'siteName', 'サイト番号とサイト名が一致しません');
   }
 
-  if (
-    raw.siteNumber.trim() &&
-    siteByNumberMatch &&
-    !Number.isNaN(guests) &&
-    guests > siteByNumberMatch.capacity
-  ) {
-    addFieldError(
-      fieldErrors,
-      errors,
-      'guests',
-      `人数が定員超過です。${normalizedSite} の上限は ${siteByNumberMatch.capacity} 名です`,
-    );
-  }
-
   if (plan && siteByNumberMatch && !plan.targetSiteIds.includes(siteByNumberMatch.id)) {
     addFieldError(fieldErrors, errors, 'siteNumber', '指定されたサイトは対象プランに紐付いていません');
   }

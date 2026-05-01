@@ -8,11 +8,12 @@ import {
   OptionSelection,
   OptionsPayload,
   BookingContext,
-  STORAGE_KEY_OPTIONS_PAYLOAD,
 } from "@/types/options";
 import { fetchOptions } from "@/lib/admin/fetchData";
 import { calculatePlanAccommodationAmount } from "@/lib/pricing";
+import { writeOptionsPayload } from "@/lib/bookingStorage";
 import { getSiteSelectionLabel } from "@/lib/siteSelectionLabel";
+import { hasSiteSelection } from "@/lib/siteSelectionState";
 import { useBookingDraftStore } from "@/stores/bookingDraftStore";
 import BookingSummaryBar from "@/components/booking/BookingSummaryBar";
 import RentalOptionCard from "@/components/booking/RentalOptionCard";
@@ -46,7 +47,7 @@ export default function OptionsPage() {
   const setOptions = useBookingDraftStore((state) => state.setOptions);
 
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
-  const hasSite = !!site.siteId;
+  const hasSite = hasSiteSelection(site);
   const accommodationAmount =
     plan.minorPlanId
       ? calculatePlanAccommodationAmount(
@@ -65,6 +66,8 @@ export default function OptionsPage() {
           },
           {
             checkInDate: stay.checkIn,
+            nights: stay.nights,
+            requestedSiteCount: plan.requestedSiteCount,
           },
         )
       : site.sitePrice ?? 0;
@@ -86,6 +89,8 @@ export default function OptionsPage() {
       adults: stay.adults,
       children: stay.children,
       infants: stay.infants,
+      planId: plan.minorPlanId ?? "",
+      planName: plan.planName ?? "",
       planPricingMode: plan.pricingMode,
       planBasePrice: plan.basePrice ?? 0,
       planAdultPrice: plan.adultPrice ?? 0,
@@ -96,6 +101,7 @@ export default function OptionsPage() {
       siteId: site.siteId ?? "",
       siteNumber: site.siteNumber ?? "",
       siteName: site.siteName ?? "",
+      selectedSiteNumbers: site.selectedSiteNumbers ?? [],
       sitePrice: accommodationAmount,
       designationFee: site.designationFee ?? 0,
       areaName: site.areaName ?? "",
@@ -229,7 +235,7 @@ export default function OptionsPage() {
 
   const handleNext = () => {
     const payload = buildPayload();
-    sessionStorage.setItem(STORAGE_KEY_OPTIONS_PAYLOAD, JSON.stringify(payload));
+    writeOptionsPayload(payload);
 
     const rentals = activeSelections
       .filter(

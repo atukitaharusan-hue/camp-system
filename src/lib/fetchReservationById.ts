@@ -1,11 +1,12 @@
 import { supabase } from '@/lib/supabase';
+import { fetchPlans } from '@/lib/admin/fetchData';
 import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import type { ReservationDetail } from '@/types/reservation';
 import type { Database } from '@/types/database';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 
-function toReservationDetail(row: GuestReservationRow): ReservationDetail {
+function toReservationDetail(row: GuestReservationRow, planName = ''): ReservationDetail {
   const totalGuests = typeof row.guests === 'number' && row.guests > 0 ? row.guests : 1;
   const children = typeof row.children === 'number' && row.children >= 0 ? row.children : 0;
   const infants = typeof row.infants === 'number' && row.infants >= 0 ? row.infants : 0;
@@ -19,6 +20,7 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     status: row.status ?? 'pending',
     checkInDate: row.check_in_date,
     checkOutDate: row.check_out_date,
+    nights: row.nights,
     guests: totalGuests,
     adults,
     children,
@@ -30,7 +32,9 @@ function toReservationDetail(row: GuestReservationRow): ReservationDetail {
     checkedInAt: row.checked_in_at,
     userName: row.user_name || 'ご予約者様',
     userEmail: row.user_email ?? '',
+    planName,
     siteNumber: row.site_number ?? '',
+    siteName: row.site_name ?? '',
     siteType: row.site_type ?? 'standard',
     campgroundName: row.campground_name ?? 'Green Valley',
     paymentMethod: row.payment_method ?? null,
@@ -44,7 +48,9 @@ export async function fetchReservationById(reservationId: string): Promise<Reser
   const { data, error } = await supabase.from('guest_reservations').select('*').eq('id', reservationId).single();
 
   if (!error && data) {
-    return toReservationDetail(data);
+    const plans = await fetchPlans();
+    const planName = plans.find((plan) => plan.id === data.plan_id)?.name ?? '';
+    return toReservationDetail(data, planName);
   }
 
   return null;
