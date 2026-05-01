@@ -30,13 +30,13 @@
 
 ## 2. 重大: `ADMIN_PASSWORD` 未設定時に管理機能を閉じる
 
-- [ ] `ADMIN_PASSWORD` 未設定時に `/admin` 配下をフリーアクセスにしない
-- [ ] QR閲覧用パスワード設定 API でも `ADMIN_PASSWORD` 未設定を管理者扱いしない
-- [ ] README の環境変数説明を `ADMIN_PASSWORD` 必須として更新する
+- [x] `ADMIN_PASSWORD` 未設定時に `/admin` 配下をフリーアクセスにしない
+- [x] QR閲覧用パスワード設定 API でも `ADMIN_PASSWORD` 未設定を管理者扱いしない
+- [x] README の環境変数説明を `ADMIN_PASSWORD` 必須として更新する
 
 対象候補:
 
-- `src/middleware.ts`
+- `src/proxy.ts`
 - `src/app/api/qr-access/password/route.ts`
 - `README.md`
 
@@ -128,7 +128,7 @@
 
 - `src/lib/admin/session.ts`
 - `src/app/api/admin-auth/route.ts`
-- `src/middleware.ts`
+- `src/proxy.ts`
 
 完了条件:
 

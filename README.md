@@ -64,8 +64,11 @@ STRIPE_SECRET_KEY=sk_test_dummy
 NEXT_PUBLIC_LINE_LIFF_ID=<LIFF ID>
 
 # Admin
+ADMIN_PASSWORD=<管理画面ログイン用の強いパスワード>
 ADMIN_EMAILS=your-email@example.com
 ```
+
+`ADMIN_PASSWORD` は必須です。未設定の場合、管理画面と管理APIは利用できません。
 
 ### 3. Supabase ローカル環境の起動
 

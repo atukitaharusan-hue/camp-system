@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySessionToken } from '@/lib/admin/session';
-
-const ADMIN_SESSION_COOKIE = 'admin_session';
+import { COOKIE_NAME, verifySessionToken } from '@/lib/admin/session';
 
 function isPasswordAuthEnabled() {
   return !!process.env.ADMIN_PASSWORD;
@@ -14,7 +12,7 @@ export async function proxy(request: NextRequest) {
   if (pathname === '/admin/login') {
     // 既に認証済みなら /admin へリダイレクト
     if (isPasswordAuthEnabled()) {
-      const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
+      const token = request.cookies.get(COOKIE_NAME)?.value;
       if (token && await verifySessionToken(token)) {
         const url = request.nextUrl.clone();
         url.pathname = '/admin';
@@ -36,18 +34,20 @@ export async function proxy(request: NextRequest) {
  * /admin 配下を保護
  */
 async function protectAdmin(request: NextRequest) {
-  // パスワード認証モード
-  if (isPasswordAuthEnabled()) {
-    const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value;
-    if (!token || !await verifySessionToken(token)) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/admin/login';
-      return NextResponse.redirect(url);
-    }
-    return NextResponse.next();
+  if (!isPasswordAuthEnabled()) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/admin/login';
+    url.searchParams.set('error', 'missing-admin-password');
+    return NextResponse.redirect(url);
   }
 
-  // ADMIN_PASSWORD 未設定の場合はフリーアクセス（開発用）
+  // パスワード認証モード
+  const token = request.cookies.get(COOKIE_NAME)?.value;
+  if (!token || !await verifySessionToken(token)) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/admin/login';
+    return NextResponse.redirect(url);
+  }
   return NextResponse.next();
 }
 
