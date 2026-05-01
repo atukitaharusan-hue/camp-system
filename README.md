@@ -67,6 +67,7 @@ NEXT_PUBLIC_LINE_LIFF_ID=<LIFF ID>
 # Admin
 ADMIN_PASSWORD=<管理画面ログイン用の強いパスワード>
 ADMIN_SESSION_SECRET=<管理セッション署名用のランダム文字列>
+例：openssl rand -base64 32
 ADMIN_EMAILS=your-email@example.com
 ```
 
