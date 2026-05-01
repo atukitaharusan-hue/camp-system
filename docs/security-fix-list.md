@@ -125,16 +125,17 @@
 
 ## 7. 高: 管理セッショントークンを期限付き・失効可能にする
 
-- [ ] セッション署名には `ADMIN_PASSWORD` そのものではなく `ADMIN_SESSION_SECRET` など別シークレットを使う
-- [ ] トークン payload に `iat`, `exp`, `jti` を入れる
-- [ ] 検証時に署名・期限を確認する
-- [ ] ログイン失敗のレート制限を検討する
+- [x] セッション署名には `ADMIN_PASSWORD` そのものではなく `ADMIN_SESSION_SECRET` など別シークレットを使う
+- [x] トークン payload に `iat`, `exp`, `jti` を入れる
+- [x] 検証時に署名・期限を確認する
+- [x] ログイン失敗のレート制限を検討する
 
 対象候補:
 
 - `src/lib/admin/session.ts`
 - `src/app/api/admin-auth/route.ts`
 - `src/proxy.ts`
+- `README.md`
 
 完了条件:
 

@@ -66,10 +66,11 @@ NEXT_PUBLIC_LINE_LIFF_ID=<LIFF ID>
 
 # Admin
 ADMIN_PASSWORD=<管理画面ログイン用の強いパスワード>
+ADMIN_SESSION_SECRET=<管理セッション署名用のランダム文字列>
 ADMIN_EMAILS=your-email@example.com
 ```
 
-`ADMIN_PASSWORD` は必須です。未設定の場合、管理画面と管理APIは利用できません。
+`ADMIN_PASSWORD` と `ADMIN_SESSION_SECRET` は必須です。未設定の場合、管理画面と管理APIは利用できません。`ADMIN_SESSION_SECRET` はパスワードとは別の十分に長いランダム文字列を設定してください。
 
 ### 3. Supabase ローカル環境の起動
 

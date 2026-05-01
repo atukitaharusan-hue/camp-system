@@ -3,6 +3,7 @@
 ## 事前準備
 
 - [ ] `.env.local` に `ADMIN_PASSWORD` が設定されている
+- [ ] `.env.local` に `ADMIN_SESSION_SECRET` が設定されている
 - [ ] `.env.local` に `SUPABASE_SERVICE_ROLE_KEY` が設定されている
 - [ ] localhostでLINEなし予約を試す場合、`.env.local` に `NEXT_PUBLIC_ENABLE_DEV_LIFF_PROFILE=true` または `NEXT_PUBLIC_LINE_LIFF_ID=dummy_liff_id` が設定されている
 - [ ] dev serverを停止してから再起動する
