@@ -5,19 +5,18 @@ import type { Liff } from "@line/liff";
 import { useEffect, useState, type ReactNode } from "react";
 
 function isLocalDevLiffProfileEnabled() {
-  if (process.env.NODE_ENV !== "development") return false;
   if (typeof window === "undefined") return false;
+  const isExplicitlyEnabled = process.env.NEXT_PUBLIC_ENABLE_DEV_LIFF_PROFILE === "true";
+  const isVercelPreview = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
+  const isDevelopment = process.env.NODE_ENV === "development";
   const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  if (!isLocalhost) return false;
-  return (
-    process.env.NEXT_PUBLIC_ENABLE_DEV_LIFF_PROFILE === "true" ||
-    process.env.NEXT_PUBLIC_LINE_LIFF_ID === "dummy_liff_id"
-  );
+  if (!isLocalhost && !isVercelPreview) return false;
+  return isExplicitlyEnabled || (isDevelopment && process.env.NEXT_PUBLIC_LINE_LIFF_ID === "dummy_liff_id");
 }
 
 const devLiffProfile: NonNullable<LiffContextValue["profile"]> = {
-  userId: "dev-local-line-user",
-  displayName: "ローカルテストユーザー",
+  userId: "dev-preview-line-user",
+  displayName: "プレビューテストユーザー",
   pictureUrl: undefined,
 };
 
