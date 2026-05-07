@@ -120,7 +120,6 @@ INSERT INTO public.app_settings (key, value) VALUES ('calendar_display_settings'
 INSERT INTO public.app_settings (key, value) VALUES ('admin_account', '{
   "userName": "キャンプ場管理者",
   "email": "owner@example.com",
-  "password": "0221-owner",
   "allowConcurrentLogin": true,
   "isInitialized": false
 }');
