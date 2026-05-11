@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getQrAccessSupabaseClient,
+  isSameQrAccessCustomer,
   QR_ACCESS_COOKIE,
   verifyQrAccessSessionToken,
 } from '@/lib/qrAccessServer';
@@ -16,13 +17,6 @@ function getIdentity(request: NextRequest) {
     reservationId: reservationId && reservationId.length > 0 ? reservationId : null,
     qrToken: qrToken && qrToken.length > 0 ? qrToken : null,
   };
-}
-
-function sameCustomer(target: GuestReservationRow, candidate: GuestReservationRow) {
-  if (target.user_identifier && candidate.user_identifier === target.user_identifier) return true;
-  if (target.user_email && candidate.user_email === target.user_email) return true;
-  if (target.user_phone && candidate.user_phone === target.user_phone) return true;
-  return candidate.user_name === target.user_name;
 }
 
 function parseOptions(value: Json | null, optionNameMap: Map<string, string>) {
@@ -111,7 +105,7 @@ export async function GET(request: NextRequest) {
 
     const planNameMap = new Map((plans ?? []).map((plan) => [plan.id, plan.name]));
     const optionNameMap = new Map((options ?? []).map((option) => [option.id, option.name]));
-    const relatedReservations = (reservations ?? []).filter((reservation) => sameCustomer(target, reservation));
+    const relatedReservations = (reservations ?? []).filter((reservation) => isSameQrAccessCustomer(target, reservation));
 
     return NextResponse.json({
       member: {

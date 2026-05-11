@@ -43,7 +43,7 @@ export default function AdminDashboardPage() {
         { count: todayCreatedReservations },
         { count: unpaidCount },
         { count: todayCancelledReservations },
-        { data: imports },
+        imports,
         actions,
         notifications,
       ] = await Promise.all([
@@ -51,7 +51,9 @@ export default function AdminDashboardPage() {
         supabase.from('guest_reservations').select('*', { count: 'exact', head: true }).gte('created_at', `${today}T00:00:00`).lt('created_at', `${tomorrow}T00:00:00`).not('status', 'eq', 'cancelled'),
         supabase.from('guest_reservations').select('*', { count: 'exact', head: true }).eq('payment_status', 'pending').not('status', 'eq', 'cancelled'),
         supabase.from('guest_reservations').select('*', { count: 'exact', head: true }).eq('status', 'cancelled').gte('updated_at', `${today}T00:00:00`).lt('updated_at', `${tomorrow}T00:00:00`),
-        supabase.from('import_jobs').select('*').order('created_at', { ascending: false }).limit(5),
+        fetch('/api/admin/import-jobs?limit=5')
+          .then((response) => response.json())
+          .then((payload) => (Array.isArray(payload.jobs) ? payload.jobs : [])),
         fetchRecentActions(5),
         fetchRecentNotifications(5),
       ]);

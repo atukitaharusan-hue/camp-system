@@ -1,6 +1,3 @@
-import { supabase } from '@/lib/supabase';
-import type { Json } from '@/types/database';
-
 export type NotificationType =
   | 'reservation_created'
   | 'reservation_updated'
@@ -22,16 +19,16 @@ export interface CreateNotificationInput {
  * 現時点では実際の送信は行わず、status='queued' で保存。
  */
 export async function createNotificationLog(input: CreateNotificationInput) {
-  const { error } = await supabase.from('notification_logs').insert({
-    reservation_id: input.reservationId ?? null,
-    notification_type: input.type,
-    channel: input.channel,
-    recipient: input.recipient ?? null,
-    payload_json: (input.payload as Json) ?? {},
-    status: 'queued',
+  const response = await fetch('/api/admin/notifications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
-  if (error) {
-    console.error('[createNotificationLog] Failed:', error.message);
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const message = typeof payload.error === 'string' ? payload.error : '通知ログの保存に失敗しました。';
+    console.error('[createNotificationLog] Failed:', message);
   }
 }
 
@@ -117,34 +114,27 @@ export async function notifyReservationCancelled(
  * 指定予約の通知履歴を取得
  */
 export async function fetchNotificationsByReservation(reservationId: string) {
-  const { data, error } = await supabase
-    .from('notification_logs')
-    .select('*')
-    .eq('reservation_id', reservationId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('[fetchNotificationsByReservation] Failed:', error.message);
+  const params = new URLSearchParams({ limit: '100', reservationId });
+  const response = await fetch(`/api/admin/notifications?${params.toString()}`);
+  if (!response.ok) {
+    console.error('[fetchNotificationsByReservation] Failed:', response.statusText);
     return [];
   }
-  return data ?? [];
+  const payload = await response.json().catch(() => ({}));
+  return Array.isArray(payload.notifications) ? payload.notifications : [];
 }
 
 /**
  * 直近の通知ログ一覧
  */
 export async function fetchRecentNotifications(limit = 20) {
-  const { data, error } = await supabase
-    .from('notification_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.error('[fetchRecentNotifications] Failed:', error.message);
+  const response = await fetch(`/api/admin/notifications?limit=${encodeURIComponent(String(limit))}`);
+  if (!response.ok) {
+    console.error('[fetchRecentNotifications] Failed:', response.statusText);
     return [];
   }
-  return data ?? [];
+  const payload = await response.json().catch(() => ({}));
+  return Array.isArray(payload.notifications) ? payload.notifications : [];
 }
 
 const TYPE_LABELS: Record<string, string> = {

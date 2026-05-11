@@ -9,8 +9,11 @@ declare global {
 }
 
 const liffId = process.env.NEXT_PUBLIC_LINE_LIFF_ID;
+const isDevLiffProfileEnabled =
+  process.env.NEXT_PUBLIC_ENABLE_DEV_LIFF_PROFILE === "true" &&
+  process.env.NEXT_PUBLIC_VERCEL_ENV !== "production";
 
-if (liffId && liffId !== "dummy_liff_id") {
+if (liffId && liffId !== "dummy_liff_id" && !isDevLiffProfileEnabled) {
   console.info(`[instrumentation-client] Initializing LIFF with ID: ${liffId}`);
   const path = window.location.pathname;
   if (!path.startsWith("/admin") && !path.startsWith("/api")) {

@@ -5,8 +5,7 @@ import { fetchAdminAccount, saveAdminAccount } from '@/lib/admin/fetchData';
 import type { AdminAccountProfile } from '@/types/admin';
 
 export default function AdminAccountPage() {
-  const [account, setAccount] = useState<AdminAccountProfile>({ userName: '', email: '', password: '', isInitialized: false, allowConcurrentLogin: true });
-  const [showPassword, setShowPassword] = useState(false);
+  const [account, setAccount] = useState<AdminAccountProfile>({ userName: '', email: '', isInitialized: false, allowConcurrentLogin: true });
 
   useEffect(() => {
     fetchAdminAccount().then(setAccount);
@@ -31,15 +30,6 @@ export default function AdminAccountPage() {
           <div>
             <dt className="text-xs text-gray-500">ログインに使っているメールアドレス</dt>
             <dd className="mt-1 text-sm font-medium text-gray-900">{account.email}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-500">パスワード</dt>
-            <dd className="mt-1 flex items-center gap-3 text-sm font-medium text-gray-900">
-              <span>{showPassword ? account.password : '••••••••••'}</span>
-              <button onClick={() => setShowPassword((prev) => !prev)} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
-                {showPassword ? '非表示' : '表示'}
-              </button>
-            </dd>
           </div>
         </dl>
 

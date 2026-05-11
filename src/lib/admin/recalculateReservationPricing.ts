@@ -1,5 +1,5 @@
 import { fetchOptions, fetchPlans, fetchPricingSettings, fetchSiteDetails } from '@/lib/admin/fetchData';
-import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   calculateReservationPricing,
   coerceReservationPricingBreakdown,
@@ -11,6 +11,7 @@ import type { ReservationPricingBreakdown } from '@/types/pricing';
 import type { SiteDetail } from '@/types/site';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
+type AdminSupabaseClient = SupabaseClient<Database>;
 
 interface StoredOptionEntry {
   type?: 'rental' | 'event';
@@ -132,6 +133,25 @@ function getDesignationFee(
 }
 
 export async function recalculateReservationsPricing(
+  reservations: GuestReservationRow[],
+): Promise<RecalculateReservationResult[]> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'recalculatePricing', reservations }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(typeof payload.error === 'string' ? payload.error : '料金再計算に失敗しました。');
+  }
+
+  const payload = await response.json();
+  return Array.isArray(payload.results) ? payload.results : [];
+}
+
+export async function recalculateReservationsPricingInDatabase(
+  supabase: AdminSupabaseClient,
   reservations: GuestReservationRow[],
 ): Promise<RecalculateReservationResult[]> {
   const [plans, pricingSettings, options, sites] = await Promise.all([

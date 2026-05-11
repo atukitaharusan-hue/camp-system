@@ -1,11 +1,10 @@
-import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateQrToken } from '@/lib/generateQrToken';
 import { calculateNights, formatAdminErrors, validateReservation } from '@/lib/validateReservation';
-import { logAdminAction } from '@/lib/admin/actionLog';
-import { notifyReservationCreated } from '@/lib/admin/notificationLog';
 import type { Database } from '@/types/database';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
+type AdminSupabaseClient = SupabaseClient<Database>;
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
 
@@ -47,6 +46,17 @@ export interface AdminReservationInput {
 export type AdminCreateResult =
   | { success: true; reservation: GuestReservationRow }
   | { success: false; error: string };
+
+interface AdminReservationSideEffects {
+  logAdminAction?: (input: {
+    adminEmail: string;
+    actionType: 'reservation_create';
+    targetType: 'reservation';
+    targetId?: string;
+    after?: Record<string, unknown> | null;
+  }) => Promise<void>;
+  notifyReservationCreated?: (reservationId: string, userEmail?: string | null) => Promise<void>;
+}
 
 export function validateAdminReservation(input: AdminReservationInput): string | null {
   if (!input.userName.trim()) return '予約者名を入力してください。';
@@ -127,7 +137,11 @@ function getAllSelectedSiteNumbers(input: AdminReservationInput) {
   );
 }
 
-export async function createAdminReservation(input: AdminReservationInput): Promise<AdminCreateResult> {
+export async function createAdminReservationInDatabase(
+  supabaseClient: AdminSupabaseClient,
+  input: AdminReservationInput,
+  sideEffects: AdminReservationSideEffects = {},
+): Promise<AdminCreateResult> {
   const formError = validateAdminReservation(input);
   if (formError) {
     return { success: false, error: formError };
@@ -171,7 +185,7 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
   const selectedSiteNumbers = getAllSelectedSiteNumbers(input);
   const totalRequestedSiteCount = getTotalRequestedSiteCount(input);
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('guest_reservations')
     .insert({
       user_name: input.userName.trim(),
@@ -207,7 +221,7 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
   }
 
   if (input.adminEmail) {
-    await logAdminAction({
+    await sideEffects.logAdminAction?.({
       adminEmail: input.adminEmail,
       actionType: 'reservation_create',
       targetType: 'reservation',
@@ -227,7 +241,17 @@ export async function createAdminReservation(input: AdminReservationInput): Prom
     });
   }
 
-  await notifyReservationCreated(data.id, input.userEmail || null);
+  await sideEffects.notifyReservationCreated?.(data.id, input.userEmail || null);
 
   return { success: true, reservation: data };
+}
+
+export async function createAdminReservation(input: AdminReservationInput): Promise<AdminCreateResult> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'create', input }),
+  });
+
+  return response.json();
 }

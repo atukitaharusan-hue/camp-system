@@ -1,17 +1,13 @@
-import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   validateReservation,
   formatAdminErrors,
   calculateNights,
 } from '@/lib/validateReservation';
-import { logAdminAction } from '@/lib/admin/actionLog';
-import {
-  notifyReservationUpdated,
-  notifyReservationCancelled,
-} from '@/lib/admin/notificationLog';
 import type { Database } from '@/types/database';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
+type AdminSupabaseClient = SupabaseClient<Database>;
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
 
@@ -45,12 +41,31 @@ export type UpdateResult =
   | { success: true; reservation: GuestReservationRow }
   | { success: false; error: string };
 
-export async function updateReservation(
+interface ReservationUpdateSideEffects {
+  logAdminAction?: (input: {
+    adminEmail: string;
+    actionType: 'reservation_update' | 'reservation_cancel';
+    targetType: 'reservation';
+    targetId?: string;
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+  }) => Promise<void>;
+  notifyReservationUpdated?: (
+    reservationId: string,
+    userEmail?: string | null,
+    changes?: Record<string, unknown>,
+  ) => Promise<void>;
+  notifyReservationCancelled?: (reservationId: string, userEmail?: string | null) => Promise<void>;
+}
+
+export async function updateReservationInDatabase(
+  supabaseClient: AdminSupabaseClient,
   id: string,
   input: UpdateReservationInput,
   adminEmail: string,
+  sideEffects: ReservationUpdateSideEffects = {},
 ): Promise<UpdateResult> {
-  const { data: current, error: fetchErr } = await supabase
+  const { data: current, error: fetchErr } = await supabaseClient
     .from('guest_reservations')
     .select('*')
     .eq('id', id)
@@ -112,7 +127,7 @@ export async function updateReservation(
   const totalRequestedSiteCount = planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1;
   const specialRequests = buildSpecialRequests(input.specialRequests, planItems);
 
-  const { data: updated, error: updateErr } = await supabase
+  const { data: updated, error: updateErr } = await supabaseClient
     .from('guest_reservations')
     .update({
       check_in_date: input.checkInDate,
@@ -143,7 +158,7 @@ export async function updateReservation(
 
   const changes = buildChanges(current, updated);
 
-  await logAdminAction({
+  await sideEffects.logAdminAction?.({
     adminEmail,
     actionType: 'reservation_update',
     targetType: 'reservation',
@@ -152,16 +167,32 @@ export async function updateReservation(
     after: pickFields(updated),
   });
 
-  await notifyReservationUpdated(id, current.user_email, changes);
+  await sideEffects.notifyReservationUpdated?.(id, current.user_email, changes);
 
   return { success: true, reservation: updated };
 }
 
-export async function cancelReservation(
+export async function updateReservation(
+  id: string,
+  input: UpdateReservationInput,
+  adminEmail: string,
+): Promise<UpdateResult> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'update', id, input, adminEmail }),
+  });
+
+  return response.json();
+}
+
+export async function cancelReservationInDatabase(
+  supabaseClient: AdminSupabaseClient,
   id: string,
   adminEmail: string,
+  sideEffects: ReservationUpdateSideEffects = {},
 ): Promise<{ success: boolean; error?: string }> {
-  const { data: current, error: fetchErr } = await supabase
+  const { data: current, error: fetchErr } = await supabaseClient
     .from('guest_reservations')
     .select('*')
     .eq('id', id)
@@ -175,7 +206,7 @@ export async function cancelReservation(
     return { success: false, error: 'すでにキャンセル済みです。' };
   }
 
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await supabaseClient
     .from('guest_reservations')
     .update({ status: 'cancelled' })
     .eq('id', id);
@@ -184,7 +215,7 @@ export async function cancelReservation(
     return { success: false, error: updateErr.message };
   }
 
-  await logAdminAction({
+  await sideEffects.logAdminAction?.({
     adminEmail,
     actionType: 'reservation_cancel',
     targetType: 'reservation',
@@ -193,9 +224,22 @@ export async function cancelReservation(
     after: { ...pickFields(current), status: 'cancelled' },
   });
 
-  await notifyReservationCancelled(id, current.user_email);
+  await sideEffects.notifyReservationCancelled?.(id, current.user_email);
 
   return { success: true };
+}
+
+export async function cancelReservation(
+  id: string,
+  adminEmail: string,
+): Promise<{ success: boolean; error?: string }> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'cancel', id, adminEmail }),
+  });
+
+  return response.json();
 }
 
 function normalizePlanItems(
