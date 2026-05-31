@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
 import { evaluatePlanBookablePeriod } from '@/lib/planSalesPeriod';
-import { isInventoryReservationStatus, isOpenWaitlistStatus } from '@/lib/waitlist';
+import { evaluatePlanWaitlist, isInventoryReservationStatus, isOpenWaitlistStatus } from '@/lib/waitlist';
 import type { AdminPlan, AdminSite, SalesRule } from '@/types/admin';
 import type { Database } from '@/types/database';
 
@@ -35,6 +35,8 @@ export interface PlanAvailabilityDay {
   availableSites: number;
   isBookable: boolean;
   mark: AvailabilityMark;
+  waitlistCount: number;
+  canWaitlist: boolean;
 }
 
 export interface PlanAvailabilitySummary {
@@ -433,6 +435,10 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
   const siteLookup = buildSiteLookup(sites);
   const planSiteMap = buildPlanSiteMap(plans);
   const activeReservations = reservations.filter(isActiveReservation);
+  const openWaitlistReservations = reservations.filter(
+    (reservation) =>
+      reservation.status === 'waitlisted' && isOpenWaitlistStatus(reservation.waitlist_status),
+  );
 
   return monthDates.flatMap((date) =>
     plans.map((plan): PlanAvailabilityDay => {
@@ -454,6 +460,15 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
       const availableSites =
         remainingConcurrentReservations <= 0 ? 0 : Math.max(0, capacity - reservedSites);
       const effectiveAvailableSites = salesWindow.isAvailable ? availableSites : 0;
+      const waitlistCount = openWaitlistReservations.filter(
+        (reservation) => resolveReservationPlanId(reservation, planSiteMap, siteLookup) === plan.id,
+      ).length;
+      const waitlistEvaluation = evaluatePlanWaitlist({
+        plan,
+        checkInDate: date,
+        checkOutDate: toIsoDate(nextDate),
+        activeCount: waitlistCount,
+      });
       const mark: AvailabilityMark =
         effectiveAvailableSites <= 0 || capacity <= 0
           ? 'full'
@@ -471,6 +486,11 @@ export async function getPlanAvailabilityDays(monthDates: string[]) {
         availableSites: effectiveAvailableSites,
         isBookable: salesWindow.isAvailable,
         mark,
+        waitlistCount,
+        canWaitlist:
+          salesWindow.isAvailable &&
+          remainingConcurrentReservations <= 0 &&
+          waitlistEvaluation.isAccepting,
       };
     }),
   );

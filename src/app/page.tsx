@@ -56,10 +56,6 @@ function getCalendarGridDates(monthDate: Date) {
   });
 }
 
-function isSameMonth(date: Date, monthDate: Date) {
-  return date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth();
-}
-
 function isMonthBefore(a: Date, b: Date) {
   return a.getFullYear() < b.getFullYear() || (a.getFullYear() === b.getFullYear() && a.getMonth() < b.getMonth());
 }
@@ -130,6 +126,7 @@ export default function Home() {
   useEffect(() => {
     const monthDates = getCalendarGridDates(calendarMonth).map(toISODate);
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCalendarLoading(true);
 
     getPlanAvailabilityDays(monthDates)
@@ -153,6 +150,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!stay.checkIn || !stay.checkOut) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAvailabilityMessage('');
       return;
     }
@@ -194,6 +192,7 @@ export default function Home() {
   useEffect(() => {
     if (!selectedCalendarPlan) return;
     if (isMonthBefore(calendarMonth, minCalendarMonth)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCalendarMonth(minCalendarMonth);
     } else if (isMonthAfter(calendarMonth, maxCalendarMonth)) {
       setCalendarMonth(maxCalendarMonth);
@@ -383,6 +382,7 @@ export default function Home() {
                           key={event.id}
                           className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
                         >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={event.imageUrl || '/site-map-placeholder.svg'}
                             alt={event.title}
@@ -571,12 +571,24 @@ function AvailabilityCalendarSection({
             const inCurrentMonth = getMonthKey(date) === currentMonthKey;
             const outOfRange = isoDate < today || isoDate < bookingStart || isoDate > bookingEnd;
             const bookable = Boolean(day?.isBookable) && !outOfRange && (day?.remainingConcurrentReservations ?? 0) > 0;
+            const waitlistAccepting =
+              Boolean(day?.canWaitlist) &&
+              !outOfRange &&
+              (day?.remainingConcurrentReservations ?? 0) <= 0;
             const isSelected = selectedCheckIn === isoDate;
             const isLowStock =
               bookable &&
               (day?.capacity ?? 0) > 0 &&
               (day?.availableSites ?? 0) / (day?.capacity ?? 1) < 0.1;
-            const statusLabel = outOfRange || !day?.isBookable ? '不可' : !bookable ? '満枠' : isLowStock ? '残少' : `残${day.remainingConcurrentReservations}`;
+            const statusLabel = outOfRange || !day?.isBookable
+              ? '不可'
+              : waitlistAccepting
+                ? 'キャンセル待ち受付中'
+                : !bookable
+                  ? '満枠'
+                  : isLowStock
+                    ? '残少'
+                    : `残${day.remainingConcurrentReservations}`;
 
             return (
               <button
@@ -604,13 +616,19 @@ function AvailabilityCalendarSection({
                         ? isLowStock
                           ? 'bg-amber-100 text-amber-700'
                           : 'bg-emerald-100 text-emerald-700'
-                        : 'bg-slate-200 text-slate-500'
+                        : waitlistAccepting
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-slate-200 text-slate-500'
                     }`}
                   >
-                    {outOfRange || !day?.isBookable ? '×' : !bookable ? '×' : isLowStock ? '△' : '○'}
+                    {outOfRange || !day?.isBookable ? '×' : waitlistAccepting ? '×' : !bookable ? '×' : isLowStock ? '△' : '○'}
                   </span>
                 </div>
-                <div className={`mt-2 text-[11px] font-medium ${bookable ? 'text-slate-600' : 'text-slate-400'}`}>
+                <div
+                  className={`mt-2 text-[11px] font-medium ${
+                    bookable ? 'text-slate-600' : waitlistAccepting ? 'text-rose-600' : 'text-slate-400'
+                  }`}
+                >
                   {loading ? '確認中' : statusLabel}
                 </div>
               </button>
@@ -621,6 +639,7 @@ function AvailabilityCalendarSection({
         <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">○ 空きあり</span>
           <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">△ 残りわずか</span>
+          <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">× キャンセル待ち受付中</span>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-500">× 満枠・予約不可</span>
         </div>
 
