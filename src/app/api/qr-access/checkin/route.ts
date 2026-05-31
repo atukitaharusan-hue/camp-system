@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
       .from('guest_reservations')
       .update({ status: 'checked_in', checked_in_at: checkedInAt, updated_at: checkedInAt })
       .eq('id', reservationId)
+      .not('status', 'in', '(cancelled,waitlisted)')
       .select('id, status, checked_in_at')
       .maybeSingle();
 

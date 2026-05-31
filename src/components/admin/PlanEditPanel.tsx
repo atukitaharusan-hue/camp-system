@@ -3,7 +3,13 @@
 import { useEffect, useState } from 'react';
 import { fetchOptions, fetchSites } from '@/lib/admin/fetchData';
 import { normalizeGuestBandRules } from '@/lib/pricing';
-import type { AdminPlan, AdminSite, GuestBandPriceTier, GuestBandSeasonRule } from '@/types/admin';
+import type {
+  AdminPlan,
+  AdminSite,
+  GuestBandPriceTier,
+  GuestBandSeasonRule,
+  WaitlistExcludedPeriod,
+} from '@/types/admin';
 import type { OptionItem } from '@/types/options';
 
 interface Props {
@@ -44,6 +50,14 @@ function createGuestBandRule(index: number): GuestBandSeasonRule {
     startDate: null,
     endDate: null,
     bands: [createGuestBandTier(0)],
+  };
+}
+
+function createWaitlistExcludedPeriod(index: number): WaitlistExcludedPeriod {
+  return {
+    id: `waitlist-excluded-period-${Date.now()}-${index}`,
+    startDate: '',
+    endDate: '',
   };
 }
 
@@ -192,6 +206,29 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
           ? { ...rule, bands: rule.bands.filter((tier) => tier.id !== tierId) }
           : rule,
       ),
+    );
+  };
+
+  const addWaitlistExcludedPeriod = () => {
+    updateForm('waitlistExcludedPeriods', [
+      ...form.waitlistExcludedPeriods,
+      createWaitlistExcludedPeriod(form.waitlistExcludedPeriods.length),
+    ]);
+  };
+
+  const updateWaitlistExcludedPeriod = (periodId: string, next: Partial<WaitlistExcludedPeriod>) => {
+    updateForm(
+      'waitlistExcludedPeriods',
+      form.waitlistExcludedPeriods.map((period) =>
+        period.id === periodId ? { ...period, ...next } : period,
+      ),
+    );
+  };
+
+  const removeWaitlistExcludedPeriod = (periodId: string) => {
+    updateForm(
+      'waitlistExcludedPeriods',
+      form.waitlistExcludedPeriods.filter((period) => period.id !== periodId),
     );
   };
 
@@ -580,6 +617,124 @@ export default function PlanEditPanel({ plan, onClose, onSave }: Props) {
                 className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
               />
             </Field>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">キャンセル待ち設定</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  満枠時にこのプランでキャンセル待ちを受け付ける設定です。
+                </p>
+              </div>
+              <label className="flex items-center gap-3 text-sm font-medium text-slate-800">
+                <input
+                  type="checkbox"
+                  name="waitlistEnabled"
+                  checked={form.waitlistEnabled}
+                  onChange={handleFieldChange}
+                  className="rounded border-slate-300"
+                />
+                受付を有効化
+              </label>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="受付上限組数">
+                <input
+                  type="number"
+                  min={0}
+                  name="waitlistMaxCount"
+                  value={form.waitlistMaxCount}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                />
+              </Field>
+              <Field label="表示メッセージ">
+                <input
+                  type="text"
+                  name="waitlistMessage"
+                  value={form.waitlistMessage}
+                  onChange={handleFieldChange}
+                  placeholder="現在〇組のキャンセル待ち受付中です"
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                />
+              </Field>
+              <Field label="受付開始日">
+                <input
+                  type="date"
+                  name="waitlistStartDate"
+                  value={form.waitlistStartDate ?? ''}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                />
+              </Field>
+              <Field label="受付終了日">
+                <input
+                  type="date"
+                  name="waitlistEndDate"
+                  value={form.waitlistEndDate ?? ''}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                />
+              </Field>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900">除外期間</h4>
+                  <p className="text-xs text-slate-500">この期間はキャンセル待ち受付を停止します。</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addWaitlistExcludedPeriod}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white"
+                >
+                  期間を追加
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {form.waitlistExcludedPeriods.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
+                    除外期間は未設定です。
+                  </div>
+                )}
+
+                {form.waitlistExcludedPeriods.map((period) => (
+                  <div key={period.id} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <Field label="開始日">
+                      <input
+                        type="date"
+                        value={period.startDate}
+                        onChange={(event) =>
+                          updateWaitlistExcludedPeriod(period.id, { startDate: event.target.value })
+                        }
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                      />
+                    </Field>
+                    <Field label="終了日">
+                      <input
+                        type="date"
+                        value={period.endDate}
+                        onChange={(event) =>
+                          updateWaitlistExcludedPeriod(period.id, { endDate: event.target.value })
+                        }
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                      />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => removeWaitlistExcludedPeriod(period.id)}
+                      className="mt-7 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </section>
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5">

@@ -72,14 +72,17 @@ export interface BookingToReservationInput {
   draft: BookingDraft;
   qrToken: string;
   pricingBreakdown: ReservationPricingBreakdown;
+  mode?: 'confirmed' | 'waitlisted';
 }
 
 export function bookingToReservation({
   draft,
   qrToken,
   pricingBreakdown,
+  mode = 'confirmed',
 }: BookingToReservationInput): GuestReservationInsert {
   const { reservationStatus, paymentStatus } = deriveStatuses(draft.payment.method);
+  const isWaitlisted = mode === 'waitlisted';
 
   return {
     user_identifier: draft.lineProfile.userId ?? null,
@@ -105,9 +108,9 @@ export function bookingToReservation({
     site_type: 'standard',
     campground_name: 'Green Valley',
     total_amount: pricingBreakdown.totalAmount,
-    status: reservationStatus,
+    status: isWaitlisted ? 'waitlisted' : reservationStatus,
     payment_method: toDbPaymentMethod(draft.payment.method),
-    payment_status: paymentStatus,
+    payment_status: isWaitlisted ? 'pending' : paymentStatus,
     qr_token: qrToken,
     options_json: buildOptionsJson(draft.options),
     pricing_breakdown: pricingBreakdown as unknown as Database['public']['Tables']['guest_reservations']['Insert']['pricing_breakdown'],
@@ -115,5 +118,6 @@ export function bookingToReservation({
     agreed_cancellation: draft.policy.agreedCancellation,
     agreed_terms: draft.policy.agreedTerms,
     agreed_sns: draft.policy.agreedSns,
+    waitlist_status: isWaitlisted ? 'waiting' : null,
   };
 }

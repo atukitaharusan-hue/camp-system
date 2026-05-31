@@ -90,6 +90,134 @@ function clearAdminCache(prefixes: string[]) {
   }
 }
 
+function isNetworkFetchError(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.toLowerCase().includes('failed to fetch')
+  );
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function normalizePlanRow(plan: AdminPlan) {
+  return {
+    name: plan.name.trim(),
+    description: plan.description.trim(),
+    category: plan.category.trim() || null,
+    features: plan.features.trim() || null,
+    is_published: plan.isPublished,
+    is_lodging_tax_applicable: Boolean(plan.isLodgingTaxApplicable),
+    pricing_mode: plan.pricingMode,
+    base_price: plan.basePrice,
+    adult_price: plan.adultPrice,
+    child_price: plan.childPrice,
+    infant_price: plan.infantPrice,
+    guest_band_rules:
+      normalizeGuestBandRules(plan.guestBandRules) as unknown as Database['public']['Tables']['plans']['Insert']['guest_band_rules'],
+    capacity: plan.maxSiteCount,
+    max_site_count: plan.maxSiteCount,
+    max_concurrent_reservations: plan.maxConcurrentReservations,
+    max_guests_per_booking: plan.maxGuestsPerReservation,
+    sales_start_date: plan.salesStartDate || null,
+    sales_end_date: plan.salesEndDate || null,
+    waitlist_enabled: Boolean(plan.waitlistEnabled),
+    waitlist_max_count: plan.waitlistMaxCount,
+    waitlist_start_date: plan.waitlistStartDate || null,
+    waitlist_end_date: plan.waitlistEndDate || null,
+    waitlist_message: plan.waitlistMessage.trim() || null,
+    image_url: plan.imageUrl || null,
+  };
+}
+
+function buildPlanValidationErrors(plans: AdminPlan[]) {
+  const errors: string[] = [];
+
+  plans.forEach((plan, index) => {
+    const label = plan.name.trim() || `プラン${index + 1}`;
+
+    if (!plan.name.trim()) errors.push(`${label}: プラン名は必須です。`);
+    if (!plan.description.trim()) errors.push(`${label}: 説明は必須です。`);
+    if (!Number.isFinite(plan.basePrice) || plan.basePrice < 0) errors.push(`${label}: 基本料金は0以上で入力してください。`);
+    if (plan.pricingMode !== 'per_group' && plan.pricingMode !== 'per_person') {
+      errors.push(`${label}: 料金計算パターンを選択してください。`);
+    }
+    if (plan.pricingMode === 'per_person') {
+      if (!Number.isFinite(plan.adultPrice) || plan.adultPrice < 0) {
+        errors.push(`${label}: 大人(中学生以上)単価は0円以上で入力してください。`);
+      }
+      if (!Number.isFinite(plan.childPrice) || plan.childPrice < 0) {
+        errors.push(`${label}: 子ども単価は0円以上で入力してください。`);
+      }
+      if (!Number.isFinite(plan.infantPrice) || plan.infantPrice < 0) {
+        errors.push(`${label}: 幼児単価は0円以上で入力してください。`);
+      }
+    }
+    if (!Number.isInteger(plan.maxSiteCount) || plan.maxSiteCount < 1) errors.push(`${label}: 上限サイト数は1以上の整数で入力してください。`);
+    if (!Number.isInteger(plan.maxConcurrentReservations) || plan.maxConcurrentReservations < 1) {
+      errors.push(`${label}: 同時予約上限数は1以上の整数で入力してください。`);
+    }
+    if (!Number.isInteger(plan.maxGuestsPerReservation) || plan.maxGuestsPerReservation < 1) {
+      errors.push(`${label}: 1度の予約にあたる上限定員数は1以上の整数で入力してください。`);
+    }
+    if (
+      plan.salesStartDate &&
+      plan.salesEndDate &&
+      new Date(plan.salesStartDate).getTime() > new Date(plan.salesEndDate).getTime()
+    ) {
+      errors.push(`${label}: 予約可能期間の終了日は開始日以降にしてください。`);
+    }
+  });
+
+  return errors;
+}
+
+function toAdminSaveError(error: unknown, fallbackMessage: string): AdminSaveError {
+  if (error instanceof AdminSaveError) return error;
+
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+      ? error.message
+      : fallbackMessage;
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : 'UNKNOWN';
+
+  if (
+    code === '42703' ||
+    message.includes('max_site_count') ||
+    message.includes('max_concurrent_reservations') ||
+    message.includes('max_guests_per_booking') ||
+    message.includes('is_lodging_tax_applicable') ||
+    message.includes('waitlist_enabled') ||
+    message.includes('waitlist_max_count') ||
+    message.includes('waitlist_start_date') ||
+    message.includes('waitlist_end_date') ||
+    message.includes('waitlist_message')
+  ) {
+    return new AdminSaveError(
+      'プラン管理に必要なDB列がまだ作成されていません。Supabase の migration を適用してください。',
+      'MIGRATION_REQUIRED',
+      ['不足している可能性がある列: max_site_count / max_concurrent_reservations / max_guests_per_booking / waitlist_enabled / waitlist_max_count / waitlist_start_date / waitlist_end_date / waitlist_message'],
+    );
+  }
+
+  if (code === '23502') {
+    return new AdminSaveError('必須項目が不足しているため保存できません。入力内容を確認してください。', code);
+  }
+
+  if (code === '23503') {
+    return new AdminSaveError('関連するサイト情報との紐付けに失敗しました。対象サイトが存在するか確認してください。', code);
+  }
+
+  return new AdminSaveError(message || fallbackMessage, code);
+}
+
 // ============================================================
 // Sites
 // ============================================================
@@ -221,7 +349,7 @@ export async function fetchPlans(): Promise<AdminPlan[]> {
   if (cached) return cached;
   const { data, error } = await supabase
     .from('plans')
-    .select('*, plan_sites(site_id), plan_options(option_id)')
+    .select('*, plan_sites(site_id), plan_options(option_id), waitlist_excluded_periods(id, start_date, end_date)')
     .order('created_at');
   if (error) { console.error('fetchPlans error:', error); return []; }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -250,6 +378,18 @@ export async function fetchPlans(): Promise<AdminPlan[]> {
     isLodgingTaxApplicable: row.is_lodging_tax_applicable ?? false,
     salesStartDate: row.sales_start_date,
     salesEndDate: row.sales_end_date,
+    waitlistEnabled: row.waitlist_enabled ?? false,
+    waitlistMaxCount: row.waitlist_max_count ?? 0,
+    waitlistStartDate: row.waitlist_start_date,
+    waitlistEndDate: row.waitlist_end_date,
+    waitlistMessage: row.waitlist_message ?? '',
+    waitlistExcludedPeriods: (row.waitlist_excluded_periods ?? []).map(
+      (period: { id: string; start_date: string; end_date: string }) => ({
+        id: period.id,
+        startDate: period.start_date,
+        endDate: period.end_date,
+      }),
+    ),
     imageUrl: row.image_url ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -337,7 +477,8 @@ export async function fetchOptions(planId?: string): Promise<OptionItem[]> {
   const cached = readAdminCache<OptionItem[]>(cacheKey);
   if (cached) return cached;
 
-  let rows: Database['public']['Tables']['options']['Row'][] = [];
+  type OptionRow = Database['public']['Tables']['options']['Row'];
+  let rows: OptionRow[] = [];
 
   if (planId) {
     const { data: planOptionRows, error: planOptionError } = await supabase
@@ -376,14 +517,13 @@ export async function fetchOptions(planId?: string): Promise<OptionItem[]> {
     rows = data ?? [];
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const options = rows.map((row: any) => ({
+  const options: OptionItem[] = rows.map((row) => ({
     id: row.id,
-    category: row.category ?? 'rental',
+    category: (row.category ?? 'rental') as OptionItem['category'],
     name: row.name,
     description: row.description ?? '',
     price: Number(row.price),
-    priceType: row.price_type ?? 'per_unit',
+    priceType: (row.price_type ?? 'per_unit') as OptionItem['priceType'],
     unitLabel: row.unit_label ?? '個',
     maxQuantity: row.max_quantity ?? 1,
     isActive: row.is_active ?? true,

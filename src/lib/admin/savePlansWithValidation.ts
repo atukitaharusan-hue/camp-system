@@ -81,6 +81,25 @@ function buildPlanValidationErrors(plans: AdminPlan[]) {
     ) {
       errors.push(`${label}: 予約可能期間の終了日は開始日以降にしてください。`);
     }
+    if (plan.waitlistEnabled) {
+      if (!Number.isInteger(plan.waitlistMaxCount) || plan.waitlistMaxCount < 1) {
+        errors.push(`${label}: キャンセル待ち受付上限数は1以上で設定してください。`);
+      }
+      if (
+        plan.waitlistStartDate &&
+        plan.waitlistEndDate &&
+        new Date(plan.waitlistStartDate).getTime() > new Date(plan.waitlistEndDate).getTime()
+      ) {
+        errors.push(`${label}: キャンセル待ち受付期間の終了日は開始日以降にしてください。`);
+      }
+      plan.waitlistExcludedPeriods.forEach((period) => {
+        if (!period.startDate || !period.endDate) {
+          errors.push(`${label}: キャンセル待ち除外期間の開始日と終了日を入力してください。`);
+        } else if (new Date(period.startDate).getTime() > new Date(period.endDate).getTime()) {
+          errors.push(`${label}: キャンセル待ち除外期間の終了日は開始日以降にしてください。`);
+        }
+      });
+    }
   });
 
   return errors;
@@ -133,7 +152,12 @@ function toPlanSaveError(error: unknown) {
     message.includes('adult_price') ||
     message.includes('child_price') ||
     message.includes('infant_price') ||
-    message.includes('guest_band_rules')
+    message.includes('guest_band_rules') ||
+    message.includes('waitlist_enabled') ||
+    message.includes('waitlist_max_count') ||
+    message.includes('waitlist_start_date') ||
+    message.includes('waitlist_end_date') ||
+    message.includes('waitlist_message')
   ) {
     return new AdminSaveError(
       'プラン保存に必要なDB列が不足しています。Supabase の migration を適用してください。',
@@ -189,6 +213,16 @@ export async function savePlansWithValidation(plans: AdminPlan[]) {
         capacity: plan.maxSiteCount,
         salesStartDate: plan.salesStartDate || null,
         salesEndDate: plan.salesEndDate || null,
+        waitlistEnabled: Boolean(plan.waitlistEnabled),
+        waitlistMaxCount: Number(plan.waitlistMaxCount || 0),
+        waitlistStartDate: plan.waitlistStartDate || null,
+        waitlistEndDate: plan.waitlistEndDate || null,
+        waitlistMessage: plan.waitlistMessage || '',
+        waitlistExcludedPeriods: plan.waitlistExcludedPeriods.map((period) => ({
+          id: period.id,
+          startDate: period.startDate,
+          endDate: period.endDate,
+        })),
         imageUrl: plan.imageUrl || '',
         applicableOptionIds: Array.from(new Set(plan.applicableOptionIds.filter(Boolean))),
       })),

@@ -39,6 +39,7 @@ const STATUS_LABELS: Record<string, string> = {
   checked_in: 'チェックイン済み',
   completed: '利用完了',
   cancelled: 'キャンセル',
+  waitlisted: 'キャンセル待ち',
 };
 
 function parseReservationOptions(value: Json | null): ReservationOptionEntry[] {
@@ -464,7 +465,7 @@ function ReservationCheckInCard({
         <button
           type="button"
           onClick={onCheckIn}
-          disabled={isCheckedIn || updating || reservation.status === 'cancelled'}
+          disabled={isCheckedIn || updating || reservation.status === 'cancelled' || reservation.status === 'waitlisted'}
           className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
         >
           {isCheckedIn ? 'チェックイン済み' : updating ? '更新中...' : 'チェックイン済みにする'}

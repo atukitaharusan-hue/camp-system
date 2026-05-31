@@ -1,0 +1,3 @@
+-- Placeholder migration to align local migration history with the linked remote project.
+-- The corresponding remote migration was created outside the current production code line.
+-- Keep this file empty so the current production schema is not changed by this placeholder.

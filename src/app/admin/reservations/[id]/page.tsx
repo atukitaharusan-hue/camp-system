@@ -35,6 +35,7 @@ const statusConfig: Record<ReservationStatus, { label: string; className: string
   checked_in: { label: 'チェックイン済み', className: 'bg-blue-100 text-blue-800' },
   completed: { label: '利用完了', className: 'bg-gray-100 text-gray-600' },
   cancelled: { label: 'キャンセル済み', className: 'bg-red-100 text-red-800' },
+  waitlisted: { label: 'キャンセル待ち', className: 'bg-amber-100 text-amber-800' },
 };
 
 interface OptionEntry {
@@ -143,7 +144,13 @@ export default function AdminReservationDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    loadData();
+    const timerId = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
   }, [loadData]);
 
   const handleCancel = async () => {

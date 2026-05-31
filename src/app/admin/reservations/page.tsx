@@ -6,9 +6,10 @@ import { supabase } from '@/lib/supabase';
 import { fetchOptions, fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { fetchReservations } from '@/lib/admin/fetchReservations';
 import { recalculateReservationsPricing } from '@/lib/admin/recalculateReservationPricing';
-import { cancelReservation } from '@/lib/admin/updateReservation';
+import { cancelReservation, promoteWaitlistReservation } from '@/lib/admin/updateReservation';
 import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
+import { getWaitlistStatusLabel } from '@/lib/waitlist';
 import { generateReceptionCode, getPaymentMethodLabel, getPaymentStatusLabel } from '@/types/reservation';
 import type { Database, Json } from '@/types/database';
 import type { AdminPlan } from '@/types/admin';
@@ -25,6 +26,7 @@ const STATUS_OPTIONS: Array<{ value: ReservationStatus | 'all'; label: string }>
   { value: 'checked_in', label: 'チェックイン済み' },
   { value: 'completed', label: '利用完了' },
   { value: 'cancelled', label: 'キャンセル' },
+  { value: 'waitlisted', label: 'キャンセル待ち' },
 ];
 
 const STATUS_BADGES: Record<ReservationStatus, string> = {
@@ -33,6 +35,7 @@ const STATUS_BADGES: Record<ReservationStatus, string> = {
   checked_in: 'bg-blue-100 text-blue-700',
   completed: 'bg-gray-100 text-gray-700',
   cancelled: 'bg-red-100 text-red-700',
+  waitlisted: 'bg-amber-100 text-amber-800',
 };
 
 function getSelectedSiteNumbers(value: Database['public']['Tables']['guest_reservations']['Row']['selected_site_numbers']) {
@@ -449,6 +452,26 @@ export default function AdminReservationsPage() {
     [loadReservations],
   );
 
+  const handlePromoteWaitlist = useCallback(
+    async (reservationId: string) => {
+      setActionMessage(null);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const result = await promoteWaitlistReservation(reservationId, user?.email ?? 'admin');
+      if (!result.success) {
+        window.alert(result.error ?? 'キャンセル待ちの繰り上げに失敗しました。');
+        return;
+      }
+
+      setActionMessage('キャンセル待ち予約を通常予約へ繰り上げました。');
+      await loadReservations();
+    },
+    [loadReservations],
+  );
+
   const handleBulkDelete = useCallback(async () => {
     if (selectedReservationIds.length === 0) {
       setActionMessage('一括削除する予約を選択してください。');
@@ -733,6 +756,11 @@ export default function AdminReservationsPage() {
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGES[reservation.status ?? 'pending']}`}>
                         {getStatusLabel(reservation.status)}
                       </span>
+                      {reservation.status === 'waitlisted' && (
+                        <div className="mt-1 text-[11px] font-medium text-amber-700">
+                          {getWaitlistStatusLabel(reservation.waitlist_status)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
@@ -742,6 +770,15 @@ export default function AdminReservationsPage() {
                         >
                           編集
                         </Link>
+                        {reservation.status === 'waitlisted' && reservation.waitlist_status === 'candidate' && (
+                          <button
+                            type="button"
+                            onClick={() => handlePromoteWaitlist(reservation.id)}
+                            className="rounded border border-amber-200 px-3 py-1 text-xs text-amber-700 hover:bg-amber-50"
+                          >
+                            繰り上げ
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleDelete(reservation.id)}

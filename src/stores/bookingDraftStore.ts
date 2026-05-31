@@ -26,6 +26,8 @@ export type BookingDraft = {
     infantPrice: number;
     guestBandRules: GuestBandSeasonRule[];
     requestedSiteCount: number;
+    waitlistRequested: boolean;
+    waitlistMessage: string | null;
   };
   site: {
     areaId: string | null;
@@ -119,6 +121,8 @@ const initialDraft: BookingDraft = {
     infantPrice: 0,
     guestBandRules: [],
     requestedSiteCount: 1,
+    waitlistRequested: false,
+    waitlistMessage: null,
   },
   site: {
     areaId: null,

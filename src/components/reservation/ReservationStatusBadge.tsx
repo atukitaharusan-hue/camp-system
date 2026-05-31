@@ -36,6 +36,11 @@ const statusConfig: Record<
     bg: 'bg-red-100',
     text: 'text-red-800',
   },
+  waitlisted: {
+    label: 'キャンセル待ち',
+    bg: 'bg-amber-100',
+    text: 'text-amber-800',
+  },
 };
 
 export default function ReservationStatusBadge({

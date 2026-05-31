@@ -30,6 +30,11 @@ function normalizePlanRow(plan: AdminPlan) {
     max_guests_per_booking: plan.maxGuestsPerReservation,
     sales_start_date: plan.salesStartDate || null,
     sales_end_date: plan.salesEndDate || null,
+    waitlist_enabled: Boolean(plan.waitlistEnabled),
+    waitlist_max_count: plan.waitlistMaxCount,
+    waitlist_start_date: plan.waitlistStartDate || null,
+    waitlist_end_date: plan.waitlistEndDate || null,
+    waitlist_message: plan.waitlistMessage.trim() || null,
     image_url: plan.imageUrl || null,
   };
 }
@@ -87,13 +92,15 @@ export async function persistPlansToDatabase(supabase: AdminSupabaseClient, plan
   const savedPlanIds = Array.from(resolvedPlanIds.values());
   if (savedPlanIds.length === 0) return;
 
-  const [existingPlanSitesResult, existingPlanOptionsResult] = await Promise.all([
+  const [existingPlanSitesResult, existingPlanOptionsResult, existingWaitlistPeriodsResult] = await Promise.all([
     supabase.from('plan_sites').select('plan_id, site_id').in('plan_id', savedPlanIds),
     supabase.from('plan_options').select('plan_id, option_id').in('plan_id', savedPlanIds),
+    supabase.from('waitlist_excluded_periods').select('id, plan_id, start_date, end_date').in('plan_id', savedPlanIds),
   ]);
 
   if (existingPlanSitesResult.error) throw existingPlanSitesResult.error;
   if (existingPlanOptionsResult.error) throw existingPlanOptionsResult.error;
+  if (existingWaitlistPeriodsResult.error) throw existingWaitlistPeriodsResult.error;
 
   const existingSiteMap = new Map<string, string[]>();
   for (const row of existingPlanSitesResult.data ?? []) {
@@ -107,6 +114,20 @@ export async function persistPlansToDatabase(supabase: AdminSupabaseClient, plan
     const items = existingOptionMap.get(row.plan_id) ?? [];
     items.push(row.option_id);
     existingOptionMap.set(row.plan_id, items);
+  }
+
+  const existingWaitlistPeriodMap = new Map<
+    string,
+    Array<{ id: string; startDate: string; endDate: string }>
+  >();
+  for (const row of existingWaitlistPeriodsResult.data ?? []) {
+    const items = existingWaitlistPeriodMap.get(row.plan_id) ?? [];
+    items.push({
+      id: row.id,
+      startDate: row.start_date,
+      endDate: row.end_date,
+    });
+    existingWaitlistPeriodMap.set(row.plan_id, items);
   }
 
   for (const plan of plans) {
@@ -149,6 +170,35 @@ export async function persistPlansToDatabase(supabase: AdminSupabaseClient, plan
         addedOptionIds.map((optionId) => ({ plan_id: planId, option_id: optionId })),
       );
       if (error) throw error;
+    }
+
+    const currentPeriods = existingWaitlistPeriodMap.get(planId) ?? [];
+    const nextPeriods = plan.waitlistExcludedPeriods;
+    const nextIds = new Set(nextPeriods.map((period) => period.id).filter(isUuid));
+    const deletedPeriodIds = currentPeriods.map((period) => period.id).filter((id) => !nextIds.has(id));
+
+    if (deletedPeriodIds.length > 0) {
+      const { error } = await supabase.from('waitlist_excluded_periods').delete().in('id', deletedPeriodIds);
+      if (error) throw error;
+    }
+
+    for (const period of nextPeriods) {
+      const row = {
+        plan_id: planId,
+        start_date: period.startDate,
+        end_date: period.endDate,
+      };
+
+      if (isUuid(period.id)) {
+        const { error } = await supabase.from('waitlist_excluded_periods').upsert({
+          id: period.id,
+          ...row,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('waitlist_excluded_periods').insert(row);
+        if (error) throw error;
+      }
     }
   }
 }

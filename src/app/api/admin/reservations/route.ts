@@ -4,12 +4,13 @@ import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { logAdminActionServer } from '@/lib/admin/actionLogServer';
 import { createAdminReservationInDatabase } from '@/lib/admin/createAdminReservation';
 import {
-  notifyReservationCreatedServer,
   notifyReservationCancelledServer,
+  notifyReservationCreatedServer,
   notifyReservationUpdatedServer,
 } from '@/lib/admin/notificationLogServer';
 import {
   cancelReservationInDatabase,
+  promoteWaitlistReservationInDatabase,
   type UpdateReservationInput,
   updateReservationInDatabase,
 } from '@/lib/admin/updateReservation';
@@ -67,6 +68,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result);
     }
 
+    if (action === 'promote') {
+      const id = typeof body?.id === 'string' ? body.id : '';
+      const adminEmail = typeof body?.adminEmail === 'string' ? body.adminEmail : 'admin';
+      if (!id) return jsonError('繰り上げ対象の予約IDが不足しています。');
+
+      const result = await promoteWaitlistReservationInDatabase(supabase, id, adminEmail, {
+        logAdminAction: logAdminActionServer,
+        notifyReservationUpdated: notifyReservationUpdatedServer,
+      });
+      return NextResponse.json(result);
+    }
+
     if (action === 'recalculatePricing') {
       const reservations = Array.isArray(body?.reservations) ? body.reservations : [];
       const results = await recalculateReservationsPricingInDatabase(supabase, reservations);
@@ -82,7 +95,7 @@ export async function POST(request: NextRequest) {
         .from('guest_reservations')
         .update({ status: 'checked_in', checked_in_at: checkedInAt, updated_at: checkedInAt })
         .eq('id', id)
-        .neq('status', 'cancelled')
+        .not('status', 'in', '(cancelled,waitlisted)')
         .select('*')
         .single();
 

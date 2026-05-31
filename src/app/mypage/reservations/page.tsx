@@ -28,6 +28,7 @@ const STATUS_ORDER: Record<string, number> = {
   checked_in: 2,
   completed: 3,
   cancelled: 4,
+  waitlisted: 5,
 };
 
 function formatDate(iso: string) {
@@ -45,16 +46,25 @@ export default function MyReservationsPage() {
   useEffect(() => {
     if (!isReady) return;
     if (!isLoggedIn || !profile?.userId) {
-      setLoading(false);
-      return;
+      const timerId = window.setTimeout(() => {
+        setLoading(false);
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timerId);
+      };
     }
 
-    (async () => {
+    let active = true;
+
+    void (async () => {
       const { data } = await supabase
         .from("guest_reservations")
         .select("id, status, check_in_date, check_out_date, nights, guests, site_number, total_amount, created_at")
         .eq("user_identifier", profile.userId)
         .order("check_in_date", { ascending: false });
+
+      if (!active) return;
 
       if (data) {
         const mapped: ReservationSummary[] = data.map((r) => ({
@@ -73,7 +83,11 @@ export default function MyReservationsPage() {
       }
       setLoading(false);
     })();
-  }, [isReady, isLoggedIn, profile]);
+
+    return () => {
+      active = false;
+    };
+  }, [isReady, isLoggedIn, profile?.userId]);
 
   // 未ログイン
   if (isReady && !isLoggedIn) {

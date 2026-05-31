@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
 import { getStayDates, validateInventory } from '@/lib/bookingAvailability';
+import { isInventoryReservationStatus } from '@/lib/waitlist';
 
 export type ReservationSource = 'web' | 'admin' | 'import' | 'admin_update';
 
@@ -83,12 +84,11 @@ async function checkOverlap(
   try {
     let query = supabase
       .from('guest_reservations')
-      .select('id, check_in_date, check_out_date')
+      .select('id, check_in_date, check_out_date, status')
       .eq('site_number', siteNumber)
-      .not('status', 'eq', 'cancelled')
       .lt('check_in_date', checkOut)
       .gt('check_out_date', checkIn)
-      .limit(1);
+      .limit(10);
 
     if (excludeReservationId) {
       query = query.not('id', 'eq', excludeReservationId);
@@ -107,8 +107,10 @@ async function checkOverlap(
       );
     }
 
-    if (data && data.length > 0) {
-      const existing = data[0];
+    const activeReservations = (data ?? []).filter((reservation) => isInventoryReservationStatus(reservation.status));
+
+    if (activeReservations.length > 0) {
+      const existing = activeReservations[0];
       return buildError(
         'DUPLICATE_RESERVATION',
         '指定したサイトは選択日程で予約済みです。',

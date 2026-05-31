@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  validateReservation,
-  formatAdminErrors,
   calculateNights,
+  formatAdminErrors,
+  validateReservation,
 } from '@/lib/validateReservation';
 import type { Database } from '@/types/database';
 
@@ -76,11 +76,11 @@ export async function updateReservationInDatabase(
   }
 
   if (current.status === 'cancelled') {
-    return { success: false, error: 'キャンセル済みの予約は変更できません。' };
+    return { success: false, error: 'キャンセル済みの予約は更新できません。' };
   }
 
   if (input.checkOutDate <= input.checkInDate) {
-    return { success: false, error: 'チェックアウト日はチェックイン日より後にしてください。' };
+    return { success: false, error: 'チェックアウト日はチェックイン日より後の日付を指定してください。' };
   }
 
   if (input.guests < 1) {
@@ -215,6 +215,8 @@ export async function cancelReservationInDatabase(
     return { success: false, error: updateErr.message };
   }
 
+  await markWaitlistCandidate(supabaseClient, current);
+
   await sideEffects.logAdminAction?.({
     adminEmail,
     actionType: 'reservation_cancel',
@@ -240,6 +242,117 @@ export async function cancelReservation(
   });
 
   return response.json();
+}
+
+export async function promoteWaitlistReservationInDatabase(
+  supabaseClient: AdminSupabaseClient,
+  id: string,
+  adminEmail: string,
+  sideEffects: ReservationUpdateSideEffects = {},
+): Promise<UpdateResult> {
+  const { data: current, error: fetchErr } = await supabaseClient
+    .from('guest_reservations')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !current) {
+    return { success: false, error: '予約が見つかりません。' };
+  }
+
+  if (current.status !== 'waitlisted') {
+    return { success: false, error: 'キャンセル待ち予約ではありません。' };
+  }
+
+  const selectedSiteNumbers = getSelectedSiteNumbers(current);
+  const validation = await validateReservation({
+    siteNumber: selectedSiteNumbers[0] ?? '',
+    checkInDate: current.check_in_date,
+    checkOutDate: current.check_out_date,
+    guests: current.guests,
+    source: 'admin_update',
+    planId: current.plan_id,
+    requestedSiteCount: current.reserved_site_count ?? 1,
+    selectedSiteNumbers,
+    excludeReservationId: current.id,
+  });
+
+  if (!validation.valid) {
+    return { success: false, error: formatAdminErrors(validation.errors) };
+  }
+
+  const nextStatus: PaymentStatus = current.payment_method === 'credit_card' ? 'paid' : 'pending';
+  const promotedAt = new Date().toISOString();
+  const { data: updated, error: updateErr } = await supabaseClient
+    .from('guest_reservations')
+    .update({
+      status: 'confirmed',
+      waitlist_status: 'promoted',
+      waitlist_promoted_at: promotedAt,
+      payment_status: nextStatus,
+      updated_at: promotedAt,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  await sideEffects.logAdminAction?.({
+    adminEmail,
+    actionType: 'reservation_update',
+    targetType: 'reservation',
+    targetId: id,
+    before: pickFields(current),
+    after: pickFields(updated),
+  });
+
+  await sideEffects.notifyReservationUpdated?.(id, current.user_email, {
+    waitlistPromotion: 'キャンセル待ちから通常予約へ繰り上げ',
+  });
+
+  return { success: true, reservation: updated };
+}
+
+export async function promoteWaitlistReservation(
+  id: string,
+  adminEmail: string,
+): Promise<UpdateResult> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'promote', id, adminEmail }),
+  });
+
+  return response.json();
+}
+
+async function markWaitlistCandidate(
+  supabaseClient: AdminSupabaseClient,
+  cancelledReservation: GuestReservationRow,
+) {
+  if (!cancelledReservation.plan_id) return;
+
+  const { data: candidate, error } = await supabaseClient
+    .from('guest_reservations')
+    .select('*')
+    .eq('plan_id', cancelledReservation.plan_id)
+    .eq('status', 'waitlisted')
+    .eq('waitlist_status', 'waiting')
+    .lt('check_in_date', cancelledReservation.check_out_date)
+    .gt('check_out_date', cancelledReservation.check_in_date)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !candidate) return;
+
+  await supabaseClient
+    .from('guest_reservations')
+    .update({ waitlist_status: 'candidate' })
+    .eq('id', candidate.id);
 }
 
 function normalizePlanItems(
@@ -281,7 +394,8 @@ function normalizePlanItems(
 function getSelectedSiteNumbers(reservation: GuestReservationRow): string[] {
   if (Array.isArray(reservation.selected_site_numbers)) {
     return reservation.selected_site_numbers.filter(
-      (siteNumber): siteNumber is string => typeof siteNumber === 'string' && siteNumber.trim().length > 0,
+      (siteNumber): siteNumber is string =>
+        typeof siteNumber === 'string' && siteNumber.trim().length > 0,
     );
   }
 
@@ -295,7 +409,8 @@ function getAllSelectedSiteNumbers(planItems: ReservationPlanItemInput[]) {
 function buildSpecialRequests(note: string, planItems: ReservationPlanItemInput[]) {
   const cleanNote = stripSystemMemo(note);
   const selectedSiteNumbers = getAllSelectedSiteNumbers(planItems);
-  const totalRequestedSiteCount = planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1;
+  const totalRequestedSiteCount =
+    planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1;
 
   return [
     `PLAN_ID: ${planItems[0]?.planId ?? ''}`,
@@ -373,10 +488,10 @@ function buildChanges(
   ] as const;
 
   for (const key of keys) {
-    const b = before[key];
-    const a = after[key];
-    if (JSON.stringify(b) !== JSON.stringify(a)) {
-      changes[key] = { from: b, to: a };
+    const beforeValue = before[key];
+    const afterValue = after[key];
+    if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+      changes[key] = { from: beforeValue, to: afterValue };
     }
   }
   return changes;

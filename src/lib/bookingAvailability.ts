@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { fetchPlans, fetchSalesRule, fetchSites } from '@/lib/admin/fetchData';
 import { evaluatePlanBookablePeriod } from '@/lib/planSalesPeriod';
+import { isInventoryReservationStatus, isOpenWaitlistStatus } from '@/lib/waitlist';
 import type { AdminPlan, AdminSite, SalesRule } from '@/types/admin';
 import type { Database } from '@/types/database';
 
@@ -44,6 +45,7 @@ export interface PlanAvailabilitySummary {
   maxConcurrentReservations: number;
   maxGuestsPerReservation: number;
   remainingConcurrentReservations: number;
+  waitlistCount: number;
 }
 
 export interface SiteAvailabilitySummary {
@@ -92,7 +94,7 @@ export function getStayDates(checkInDate: string, checkOutDate: string) {
 }
 
 function isActiveReservation(reservation: ReservationRow) {
-  return reservation.status !== 'cancelled';
+  return isInventoryReservationStatus(reservation.status);
 }
 
 function getReservedSiteCount(reservation: ReservationRow) {
@@ -260,7 +262,6 @@ async function fetchOverlappingReservations(checkInDate: string, checkOutDate: s
   const { data, error } = await supabase
     .from('guest_reservations')
     .select('*')
-    .not('status', 'eq', 'cancelled')
     .lt('check_in_date', checkOutDate)
     .gt('check_out_date', checkInDate);
 
@@ -310,6 +311,10 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
   const siteLookup = buildSiteLookup(sites);
   const planSiteMap = buildPlanSiteMap(plans);
   const activeReservations = reservations.filter(isActiveReservation);
+  const openWaitlistReservations = reservations.filter(
+    (reservation) =>
+      reservation.status === 'waitlisted' && isOpenWaitlistStatus(reservation.waitlist_status),
+  );
 
   return plans.map((plan): PlanAvailabilitySummary => {
     const salesWindow = evaluatePlanBookablePeriod(plan, checkInDate, checkOutDate);
@@ -343,6 +348,9 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
     const remainingConcurrentReservations = Number.isFinite(minRemainingConcurrentReservations)
       ? minRemainingConcurrentReservations
       : 0;
+    const waitlistCount = openWaitlistReservations.filter(
+      (reservation) => resolveReservationPlanId(reservation, planSiteMap, siteLookup) === plan.id,
+    ).length;
 
     return {
       planId: plan.id,
@@ -352,6 +360,7 @@ export async function getPlanAvailabilityForStay(checkInDate: string, checkOutDa
       maxConcurrentReservations: plan.maxConcurrentReservations,
       maxGuestsPerReservation: plan.maxGuestsPerReservation,
       remainingConcurrentReservations: salesWindow.isAvailable ? remainingConcurrentReservations : 0,
+      waitlistCount,
     };
   });
 }

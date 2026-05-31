@@ -168,9 +168,9 @@ function mergeDraftSources({
         ? storeDraft.site.selectedSiteNumbers
         : persistedDraft?.site.selectedSiteNumbers?.length
           ? persistedDraft.site.selectedSiteNumbers
-        : snapshot?.site.selectedSiteNumbers?.length
-          ? snapshot.site.selectedSiteNumbers
-          : (optionsPayload?.booking.selectedSiteNumbers ?? []),
+          : snapshot?.site.selectedSiteNumbers?.length
+            ? snapshot.site.selectedSiteNumbers
+            : (optionsPayload?.booking.selectedSiteNumbers ?? []),
   });
 
   return {
@@ -248,6 +248,16 @@ function mergeDraftSources({
         snapshot?.plan.requestedSiteCount,
         optionsPayload?.booking.requestedSiteCount,
       ),
+      waitlistRequested:
+        storeDraft.plan.waitlistRequested ||
+        persistedDraft?.plan.waitlistRequested ||
+        snapshot?.plan.waitlistRequested ||
+        false,
+      waitlistMessage: pickString(
+        storeDraft.plan.waitlistMessage,
+        persistedDraft?.plan.waitlistMessage,
+        snapshot?.plan.waitlistMessage,
+      ),
     },
     site: {
       ...(persistedDraft?.site ?? storeDraft.site),
@@ -292,13 +302,13 @@ function mergeDraftSources({
           ? storeDraft.options.rentals
           : persistedDraft?.options.rentals?.length
             ? persistedDraft.options.rentals
-          : (snapshot?.options.rentals ?? []),
+            : (snapshot?.options.rentals ?? []),
       events:
         storeDraft.options.events.length > 0
           ? storeDraft.options.events
           : persistedDraft?.options.events?.length
             ? persistedDraft.options.events
-          : (snapshot?.options.events ?? []),
+            : (snapshot?.options.events ?? []),
     },
     policy: {
       agreedCancellation:
@@ -387,6 +397,7 @@ export default function BookingConfirmationPage() {
   const [isPricingLoading, setIsPricingLoading] = useState(true);
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [completedReservationId, setCompletedReservationId] = useState<string | null>(null);
+  const [completedReservationMode, setCompletedReservationMode] = useState<'confirmed' | 'waitlisted' | null>(null);
   const [optionsPayload, setOptionsPayload] = useState<OptionsPayload | null>(null);
   const [confirmationSnapshot, setConfirmationSnapshot] = useState<BookingDraft | null>(null);
   const [persistedDraft, setPersistedDraft] = useState<BookingDraft | null>(null);
@@ -403,9 +414,9 @@ export default function BookingConfirmationPage() {
   }, []);
 
   useEffect(() => {
-    fetchOptions().then((items) =>
-      setAllOptions(items.map((item) => ({ id: item.id, name: item.name }))),
-    );
+    fetchOptions().then((items) => {
+      setAllOptions(items.map((item) => ({ id: item.id, name: item.name })));
+    });
   }, []);
 
   const resolved = useMemo(
@@ -461,8 +472,8 @@ export default function BookingConfirmationPage() {
     Promise.all([fetchPricingSettings(), fetchPlans()])
       .then(([pricingSettings, plans]) => {
         if (!active) return;
-        const selectedPlan = plans.find((item) => item.id === resolved.plan.minorPlanId) ?? null;
 
+        const selectedPlan = plans.find((item) => item.id === resolved.plan.minorPlanId) ?? null;
         setPricingBreakdown(
           calculateReservationPricing(pricingSettings, {
             adults: resolved.stay.adults,
@@ -569,9 +580,11 @@ export default function BookingConfirmationPage() {
 
   const confirmedPricingBreakdown = pricingBreakdown as ReservationPricingBreakdown;
   const totalAmount = confirmedPricingBreakdown.totalAmount;
+  const isWaitlistRequested = resolved.plan.waitlistRequested;
 
   const handleConfirm = async () => {
     if (isSubmitting) return;
+
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -579,21 +592,23 @@ export default function BookingConfirmationPage() {
       const selectedSiteNumbers = resolved.site.selectedSiteNumbers;
       const primarySiteNumber = resolved.site.siteNumber ?? selectedSiteNumbers[0] ?? '';
 
-      const validation = await validateReservation({
-        siteNumber: primarySiteNumber,
-        checkInDate: resolved.stay.checkIn!,
-        checkOutDate: resolved.stay.checkOut!,
-        guests: resolved.stay.adults + resolved.stay.children + resolved.stay.infants,
-        source: 'web',
-        planId: resolved.plan.minorPlanId,
-        requestedSiteCount: resolved.plan.requestedSiteCount,
-        selectedSiteNumbers,
-      });
+      if (!isWaitlistRequested) {
+        const validation = await validateReservation({
+          siteNumber: primarySiteNumber,
+          checkInDate: resolved.stay.checkIn!,
+          checkOutDate: resolved.stay.checkOut!,
+          guests: resolved.stay.adults + resolved.stay.children + resolved.stay.infants,
+          source: 'web',
+          planId: resolved.plan.minorPlanId,
+          requestedSiteCount: resolved.plan.requestedSiteCount,
+          selectedSiteNumbers,
+        });
 
-      if (!validation.valid) {
-        setSubmitError(formatUserErrors(validation.errors));
-        setIsSubmitting(false);
-        return;
+        if (!validation.valid) {
+          setSubmitError(formatUserErrors(validation.errors));
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       if (!resolved.lineProfile.userId) {
@@ -618,6 +633,7 @@ export default function BookingConfirmationPage() {
         draft,
         qrToken: generateQrToken(),
         pricingBreakdown: confirmedPricingBreakdown,
+        mode: isWaitlistRequested ? 'waitlisted' : 'confirmed',
       });
 
       const result = await createReservation(payload);
@@ -631,6 +647,7 @@ export default function BookingConfirmationPage() {
       clearBookingFlowStorage();
       setLastReservationId(result.reservation.id);
       setCompletedReservationId(result.reservation.id);
+      setCompletedReservationMode(isWaitlistRequested ? 'waitlisted' : 'confirmed');
       resetDraft();
       setIsSubmitting(false);
     } catch {
@@ -640,21 +657,33 @@ export default function BookingConfirmationPage() {
   };
 
   if (completedReservationId) {
+    const isWaitlistCompleted = completedReservationMode === 'waitlisted';
+
     return (
       <CenterPanel
-        title="予約を確定しました"
-        description={'予約情報を保存しました。\n受付コードを控えて、必要に応じて完了画面へ進んでください。'}
+        title={isWaitlistCompleted ? 'キャンセル待ちを受け付けました' : '予約を確定しました'}
+        description={
+          isWaitlistCompleted
+            ? 'キャンセル待ちとして受付しました。\n空きが出た場合は、管理側で確認のうえ順次ご案内します。'
+            : '予約情報を保存しました。\n受付コードを控えて、必要に応じて QR 画面へ進んでください。'
+        }
         action={
           <div className="flex flex-col gap-3">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               受付コード: <span className="font-mono font-bold">{generateReceptionCode(completedReservationId)}</span>
             </div>
-            <a
-              href={`/reservation/${completedReservationId}/qr`}
-              className="inline-block rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              QR画面を開く
-            </a>
+            {isWaitlistCompleted ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                キャンセル待ち受付では QR コードは発行されません。
+              </div>
+            ) : (
+              <a
+                href={`/reservation/${completedReservationId}/qr`}
+                className="inline-block rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                QR画面を開く
+              </a>
+            )}
             <Link
               href="/"
               className="inline-block rounded-xl border border-gray-300 px-6 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
@@ -672,12 +701,20 @@ export default function BookingConfirmationPage() {
       <div className="container mx-auto max-w-2xl px-4">
         <div className="mb-10 text-center">
           <Link href="/booking/terms-payment" className="inline-block text-sm text-emerald-700 transition-colors hover:text-emerald-800">
-            前の画面へ戻る
+            前の画面に戻る
           </Link>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">予約内容の最終確認</h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-500 sm:text-base">
             内容を確認して、問題なければ予約を確定してください。
           </p>
+          {isWaitlistRequested && (
+            <div className="mx-auto mt-4 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-800">
+              <p className="font-semibold">この予約はキャンセル待ち受付として登録されます。</p>
+              <p className="mt-1">
+                {resolved.plan.waitlistMessage || '空きが出た場合は、管理側で確認のうえ順次ご案内します。'}
+              </p>
+            </div>
+          )}
         </div>
 
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
@@ -688,7 +725,7 @@ export default function BookingConfirmationPage() {
             <SummaryRow label="泊数" value={`${resolved.stay.nights}泊`} />
             <SummaryRow
               label="人数"
-              value={`大人(中学生以上) ${resolved.stay.adults}名 / 子ども ${resolved.stay.children}名 / 幼児 ${resolved.stay.infants}名`}
+              value={`大人(中学生以上) ${resolved.stay.adults}名 / 子供 ${resolved.stay.children}名 / 幼児 ${resolved.stay.infants}名`}
             />
           </div>
         </section>
@@ -718,7 +755,7 @@ export default function BookingConfirmationPage() {
                 <div key={rental.optionId} className="flex justify-between gap-3">
                   <span className="text-gray-600">
                     {optionMap.get(rental.optionId)?.name ?? 'オプション'}
-                    {rental.quantity > 1 && ` ×${rental.quantity}`}
+                    {rental.quantity > 1 && ` × ${rental.quantity}`}
                     {rental.days && rental.days > 1 && ` (${rental.days}日)`}
                   </span>
                   <span className="font-medium">¥{formatPrice(rental.subtotal)}</span>
@@ -728,7 +765,7 @@ export default function BookingConfirmationPage() {
                 <div key={event.optionId} className="flex justify-between gap-3">
                   <span className="text-gray-600">
                     {optionMap.get(event.optionId)?.name ?? 'イベント'}
-                    {event.people > 1 && ` ×${event.people}名`}
+                    {event.people > 1 && ` × ${event.people}名`}
                   </span>
                   <span className="font-medium">¥{formatPrice(event.subtotal)}</span>
                 </div>
@@ -738,11 +775,11 @@ export default function BookingConfirmationPage() {
         </section>
 
         <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-          <SectionHeading>同意状況</SectionHeading>
+          <SectionHeading>確認事項</SectionHeading>
           <div className="space-y-3">
             <CheckBadge checked={resolved.policy.agreedCancellation} label="キャンセルポリシーに同意済み" />
             <CheckBadge checked={resolved.policy.agreedTerms} label="利用規約に同意済み" />
-            <CheckBadge checked={resolved.policy.agreedSns} label="SNS連携に同意済み" />
+            <CheckBadge checked={resolved.policy.agreedSns} label="SNS掲載に同意済み" />
           </div>
         </section>
 
@@ -784,15 +821,17 @@ export default function BookingConfirmationPage() {
         <section className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 sm:p-5">
           <h3 className="mb-2 text-sm font-semibold text-amber-800">ご確認ください</h3>
           <ul className="list-inside list-disc space-y-1.5 text-xs leading-relaxed text-amber-700">
-            <li>予約確定時に在庫と料金を再確認します。</li>
-            <li>確定後にチェックイン用の QR コードを表示します。</li>
+            <li>{isWaitlistRequested ? 'キャンセル待ち受付時に条件と内容を再確認します。' : '予約確定時に在庫と料金を再確認します。'}</li>
+            <li>{isWaitlistRequested ? 'キャンセル待ち受付では QR コードは発行されません。' : '確定後にチェックイン用の QR コードを表示します。'}</li>
             <li>内容に誤りがある場合は、前の画面に戻って修正してください。</li>
           </ul>
         </section>
 
         {submitError && (
           <section className="mb-8 rounded-2xl border border-red-200 bg-red-50 p-4 sm:p-5">
-            <p className="mb-1 text-sm font-semibold text-red-800">予約確定でエラーが発生しました</p>
+            <p className="mb-1 text-sm font-semibold text-red-800">
+              {isWaitlistRequested ? 'キャンセル待ち受付でエラーが発生しました' : '予約確定でエラーが発生しました'}
+            </p>
             <p className="whitespace-pre-wrap text-xs leading-relaxed text-red-700">{submitError}</p>
           </section>
         )}
@@ -816,7 +855,13 @@ export default function BookingConfirmationPage() {
                 : 'bg-emerald-600 text-white shadow-md hover:bg-emerald-700 active:scale-[0.98]'
             }`}
           >
-            {isSubmitting ? '予約を確定中...' : '予約を確定する'}
+            {isSubmitting
+              ? isWaitlistRequested
+                ? 'キャンセル待ちを受付中...'
+                : '予約を確定中...'
+              : isWaitlistRequested
+                ? 'キャンセル待ちを申し込む'
+                : '予約を確定する'}
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@ import {
 } from '@/lib/pricing';
 import { fetchPlans, fetchPricingSettings } from '@/lib/admin/fetchData';
 import { validateReservation } from '@/lib/validateReservation';
+import { evaluatePlanWaitlist } from '@/lib/waitlist';
 import type { Database } from '@/types/database';
 
 type GuestReservationInsert = Database['public']['Tables']['guest_reservations']['Insert'];
@@ -29,11 +30,12 @@ export async function createReservation(
     payload.plan_id = planId;
   }
   const requestedSiteCount = payload.reserved_site_count ?? 1;
+  const isWaitlisted = payload.status === 'waitlisted';
   const selectedSiteNumbers = Array.isArray(payload.selected_site_numbers)
     ? payload.selected_site_numbers.filter((value): value is string => typeof value === 'string')
     : [];
 
-  if (planId) {
+  if (planId && !isWaitlisted) {
     const validation = await validateReservation({
       siteNumber: payload.site_number ?? '',
       checkInDate: payload.check_in_date,
@@ -84,6 +86,38 @@ export async function createReservation(
       success: false,
       error: accommodationResult.reason ?? '人数帯料金に該当しないため予約を確定できません。',
     };
+  }
+
+  if (isWaitlisted && selectedPlan) {
+    const activeWaitlistCount = await supabase
+      .from('guest_reservations')
+      .select('id', { count: 'exact', head: true })
+      .eq('plan_id', selectedPlan.id)
+      .eq('status', 'waitlisted')
+      .in('waitlist_status', ['waiting', 'candidate'])
+      .lt('check_in_date', payload.check_out_date)
+      .gt('check_out_date', payload.check_in_date);
+
+    if (activeWaitlistCount.error) {
+      return {
+        success: false,
+        error: activeWaitlistCount.error.message,
+      };
+    }
+
+    const waitlistEvaluation = evaluatePlanWaitlist({
+      plan: selectedPlan,
+      checkInDate: payload.check_in_date,
+      checkOutDate: payload.check_out_date,
+      activeCount: activeWaitlistCount.count ?? 0,
+    });
+
+    if (!waitlistEvaluation.isAccepting) {
+      return {
+        success: false,
+        error: waitlistEvaluation.reason ?? 'この日程ではキャンセル待ちを受け付けていません。',
+      };
+    }
   }
 
   const serverPricingBreakdown = calculateReservationPricing(pricingSettings, {

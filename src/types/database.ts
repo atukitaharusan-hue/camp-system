@@ -354,6 +354,8 @@ export type Database = {
           user_phone: string | null
           user_address: string | null
           user_referral_source: string | null
+          waitlist_promoted_at: string | null
+          waitlist_status: string | null
         }
         Insert: {
           adults?: number
@@ -395,6 +397,8 @@ export type Database = {
           user_phone?: string | null
           user_address?: string | null
           user_referral_source?: string | null
+          waitlist_promoted_at?: string | null
+          waitlist_status?: string | null
         }
         Update: {
           adults?: number
@@ -436,6 +440,8 @@ export type Database = {
           user_phone?: string | null
           user_address?: string | null
           user_referral_source?: string | null
+          waitlist_promoted_at?: string | null
+          waitlist_status?: string | null
         }
         Relationships: []
       }
@@ -793,6 +799,11 @@ export type Database = {
           pricing_mode: string
           sales_end_date: string | null
           sales_start_date: string | null
+          waitlist_enabled: boolean | null
+          waitlist_end_date: string | null
+          waitlist_max_count: number | null
+          waitlist_message: string | null
+          waitlist_start_date: string | null
           updated_at: string
         }
         Insert: {
@@ -817,6 +828,11 @@ export type Database = {
           pricing_mode?: string
           sales_end_date?: string | null
           sales_start_date?: string | null
+          waitlist_enabled?: boolean | null
+          waitlist_end_date?: string | null
+          waitlist_max_count?: number | null
+          waitlist_message?: string | null
+          waitlist_start_date?: string | null
           updated_at?: string
         }
         Update: {
@@ -841,9 +857,46 @@ export type Database = {
           pricing_mode?: string
           sales_end_date?: string | null
           sales_start_date?: string | null
+          waitlist_enabled?: boolean | null
+          waitlist_end_date?: string | null
+          waitlist_max_count?: number | null
+          waitlist_message?: string | null
+          waitlist_start_date?: string | null
           updated_at?: string
         }
         Relationships: []
+      }
+      waitlist_excluded_periods: {
+        Row: {
+          created_at: string
+          end_date: string
+          id: string
+          plan_id: string
+          start_date: string
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          id?: string
+          plan_id: string
+          start_date: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          id?: string
+          plan_id?: string
+          start_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "waitlist_excluded_periods_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -1120,6 +1173,7 @@ export type Database = {
         | "checked_in"
         | "completed"
         | "cancelled"
+        | "waitlisted"
       site_type: "standard" | "premium" | "deluxe" | "tent_only" | "rv_only"
       user_role: "user" | "admin" | "manager"
     }
@@ -1260,6 +1314,7 @@ export const Constants = {
         "checked_in",
         "completed",
         "cancelled",
+        "waitlisted",
       ],
       site_type: ["standard", "premium", "deluxe", "tent_only", "rv_only"],
       user_role: ["user", "admin", "manager"],

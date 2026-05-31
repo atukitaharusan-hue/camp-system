@@ -10,6 +10,7 @@ type QrReservationOption = {
   people?: number;
   days?: number;
   subtotal: number;
+  waitlisted: 'キャンセル待ち',
 };
 
 type QrReservation = {
@@ -126,7 +127,13 @@ function CheckInContent() {
   }, [queryString, qrToken, reservationId]);
 
   useEffect(() => {
-    loadReservations();
+    const timerId = window.setTimeout(() => {
+      void loadReservations();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
   }, [loadReservations]);
 
   const handleAuthenticate = async (event: FormEvent<HTMLFormElement>) => {
@@ -348,7 +355,7 @@ function ReservationCard({
         <button
           type="button"
           onClick={onCheckIn}
-          disabled={isCheckedIn || updating || reservation.status === 'cancelled'}
+          disabled={isCheckedIn || updating || reservation.status === 'cancelled' || reservation.status === 'waitlisted'}
           className="rounded-full bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isCheckedIn ? 'チェックイン済み' : updating ? '更新中...' : 'チェックイン済みにする'}

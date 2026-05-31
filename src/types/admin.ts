@@ -2,6 +2,12 @@ export type PlanPricingMode = 'per_group' | 'per_person' | 'guest_band';
 
 export type GuestBandPeriodMode = 'months' | 'date_range';
 
+export interface WaitlistExcludedPeriod {
+  id: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface GuestBandPriceTier {
   id: string;
   maxGuests: number;
@@ -40,6 +46,12 @@ export interface AdminPlan {
   maxGuestsPerReservation: number;
   salesStartDate: string | null;
   salesEndDate: string | null;
+  waitlistEnabled: boolean;
+  waitlistMaxCount: number;
+  waitlistStartDate: string | null;
+  waitlistEndDate: string | null;
+  waitlistMessage: string;
+  waitlistExcludedPeriods: WaitlistExcludedPeriod[];
   imageUrl: string;
   createdAt: string;
   updatedAt: string;
