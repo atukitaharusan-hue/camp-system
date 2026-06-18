@@ -33,7 +33,11 @@ export default function LiffApp({ children }: { children: ReactNode }) {
   useEffect(() => {
     // admin・APIルートではLIFF不要
     const path = window.location.pathname;
-    if (path.startsWith("/admin") || path.startsWith("/api")) {
+    if (
+      path.startsWith("/admin") ||
+      path.startsWith("/api") ||
+      path.startsWith("/checkin-counter")
+    ) {
       runAfterEffect(() => setIsReady(true));
       return;
     }

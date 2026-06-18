@@ -1,9 +1,10 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useLiff } from "@/contexts/LiffContext";
-import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useLiff } from '@/contexts/LiffContext';
+import { readLastReservationId, readMyPageLinkedReservationIds, readPersistedBookingDraft } from '@/lib/bookingStorage';
 
 type UserProfile = {
   displayName: string;
@@ -14,7 +15,16 @@ type UserProfile = {
   email: string | null;
   address: string | null;
   reservationCount: number;
+  todayReservationCount: number;
 };
+
+function normalizePhone(value: string | null | undefined) {
+  return (value ?? '').replace(/\D/g, '');
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
 
 export default function MyPage() {
   const { isReady, isLoggedIn, profile: liffProfile } = useLiff();
@@ -23,21 +33,42 @@ export default function MyPage() {
 
   useEffect(() => {
     if (!isReady) return;
-    if (!isLoggedIn || !liffProfile?.userId) {
-      setLoading(false);
-      return;
-    }
+    if (!isLoggedIn || !liffProfile?.userId) return;
 
     (async () => {
-      // 予約数と最新の予約からプロフィール情報を取得
-      const { data, count } = await supabase
-        .from("guest_reservations")
-        .select("user_gender, user_occupation, user_phone, user_email, user_address", { count: "exact" })
-        .eq("user_identifier", liffProfile.userId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+      const persistedDraft = readPersistedBookingDraft();
+      const lastReservationId = readLastReservationId();
+      const linkedReservationIds = readMyPageLinkedReservationIds();
+      const fallbackPhone = normalizePhone(persistedDraft?.userInfo?.phone);
+      const fallbackEmail = normalizeEmail(persistedDraft?.userInfo?.email);
+      const response = await fetch('/api/mypage/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'list',
+          userId: liffProfile.userId,
+          phone: fallbackPhone,
+          email: fallbackEmail,
+          lastReservationId,
+          linkedReservationIds,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            latest?: {
+              user_gender?: string | null;
+              user_occupation?: string | null;
+              user_phone?: string | null;
+              user_email?: string | null;
+              user_address?: string | null;
+            } | null;
+            reservationCount?: number;
+            todayReservationCount?: number;
+          }
+        | null;
 
-      const latest = data?.[0];
+      const latest = payload?.latest ?? null;
+
       setUserProfile({
         displayName: liffProfile.displayName,
         pictureUrl: liffProfile.pictureUrl ?? null,
@@ -46,13 +77,13 @@ export default function MyPage() {
         phone: latest?.user_phone ?? null,
         email: latest?.user_email ?? null,
         address: latest?.user_address ?? null,
-        reservationCount: count ?? 0,
+        reservationCount: payload?.reservationCount ?? 0,
+        todayReservationCount: payload?.todayReservationCount ?? 0,
       });
       setLoading(false);
     })();
   }, [isReady, isLoggedIn, liffProfile]);
 
-  // 未ログイン
   if (isReady && !isLoggedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-stone-50 to-emerald-50/30 px-4">
@@ -79,13 +110,14 @@ export default function MyPage() {
           <div className="py-20 text-center text-sm text-gray-400">読み込み中...</div>
         ) : userProfile ? (
           <div className="space-y-6">
-            {/* プロフィールカード */}
             <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-4">
                 {userProfile.pictureUrl ? (
-                  <img
+                  <Image
                     src={userProfile.pictureUrl}
                     alt=""
+                    width={64}
+                    height={64}
                     className="h-16 w-16 rounded-full border-2 border-emerald-200 object-cover"
                   />
                 ) : (
@@ -98,13 +130,32 @@ export default function MyPage() {
                 <div>
                   <h2 className="text-lg font-bold text-gray-800">{userProfile.displayName}</h2>
                   <p className="text-sm text-gray-500">
-                    予約回数: <span className="font-semibold text-emerald-700">{userProfile.reservationCount}回</span>
+                    予約回数: <span className="font-semibold text-emerald-700">{userProfile.reservationCount}件</span>
                   </p>
                 </div>
               </div>
             </section>
 
-            {/* 登録情報 */}
+            {userProfile.todayReservationCount > 0 ? (
+              <Link
+                href="/mypage/reservations"
+                className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-100"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white">
+                    <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">本日のチェックイン手続き</p>
+                    <p className="text-xs text-gray-600">情報の変更・チェックインはこちらから進めます</p>
+                  </div>
+                </div>
+                <span className="text-sm font-bold text-emerald-700">開く →</span>
+              </Link>
+            ) : null}
+
             <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
               <div className="border-b border-gray-100 px-5 py-4">
                 <h3 className="text-sm font-semibold text-gray-800">登録情報</h3>
@@ -116,16 +167,13 @@ export default function MyPage() {
                 <ProfileRow label="住所" value={userProfile.address} />
                 <ProfileRow label="ご職業" value={userProfile.occupation} />
               </div>
-              {!userProfile.phone && !userProfile.email && (
+              {!userProfile.phone && !userProfile.email ? (
                 <div className="border-t border-gray-100 px-5 py-4">
-                  <p className="text-xs text-amber-600">
-                    予約時にお客様情報を入力すると、次回から自動で入力されます。
-                  </p>
+                  <p className="text-xs text-amber-600">予約時に入力した連絡先は次回の予約時にも利用されます。</p>
                 </div>
-              )}
+              ) : null}
             </section>
 
-            {/* メニュー */}
             <section className="space-y-3">
               <Link
                 href="/mypage/reservations"
@@ -139,7 +187,7 @@ export default function MyPage() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">予約一覧</p>
-                    <p className="text-xs text-gray-500">予約状況の確認・QRコード表示</p>
+                    <p className="text-xs text-gray-500">予約内容の確認とQR表示</p>
                   </div>
                 </div>
                 <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -198,7 +246,7 @@ function ProfileRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex items-center justify-between py-3">
       <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-800">{value || "—"}</span>
+      <span className="text-sm font-medium text-gray-800">{value || '未登録'}</span>
     </div>
   );
 }

@@ -11,9 +11,12 @@ import {
 import {
   cancelReservationInDatabase,
   promoteWaitlistReservationInDatabase,
+  type ReservationDetailUpdateInput,
   type UpdateReservationInput,
+  updateReservationDetailInDatabase,
   updateReservationInDatabase,
 } from '@/lib/admin/updateReservation';
+import { getMyPageLinkStatusMap } from '@/lib/mypageReservationLinks';
 import { recalculateReservationsPricingInDatabase } from '@/lib/admin/recalculateReservationPricing';
 import type { AdminReservationInput } from '@/lib/admin/createAdminReservation';
 
@@ -53,6 +56,52 @@ export async function POST(request: NextRequest) {
         logAdminAction: logAdminActionServer,
         notifyReservationUpdated: notifyReservationUpdatedServer,
       });
+      return NextResponse.json(result);
+    }
+
+    if (action === 'detail-update') {
+      const id = typeof body?.id === 'string' ? body.id : '';
+      const adminEmail = typeof body?.adminEmail === 'string' ? body.adminEmail : 'admin';
+      if (!id || !body?.input || typeof body.input !== 'object') {
+        return jsonError('予約詳細更新に必要な情報が不足しています。');
+      }
+
+      const detailInput = { ...(body.input as ReservationDetailUpdateInput) };
+      if (typeof detailInput.userName === 'string' && detailInput.userName.trim()) {
+        const { data: reservation, error: reservationError } = await supabase
+          .from('guest_reservations')
+          .select('id, user_identifier')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (reservationError) {
+          return jsonError(reservationError.message, 500);
+        }
+
+        if (reservation) {
+          const linkStatusMap = await getMyPageLinkStatusMap([
+            {
+              id: reservation.id,
+              userIdentifier: reservation.user_identifier,
+            },
+          ]);
+
+          if ((linkStatusMap[reservation.id]?.status ?? 'unlinked') !== 'unlinked') {
+            delete detailInput.userName;
+          }
+        }
+      }
+
+      const result = await updateReservationDetailInDatabase(
+        supabase,
+        id,
+        detailInput,
+        adminEmail,
+        {
+          logAdminAction: logAdminActionServer,
+          notifyReservationUpdated: notifyReservationUpdatedServer,
+        },
+      );
       return NextResponse.json(result);
     }
 

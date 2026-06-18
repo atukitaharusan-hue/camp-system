@@ -4,12 +4,15 @@ import {
   formatAdminErrors,
   validateReservation,
 } from '@/lib/validateReservation';
+import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import type { Database } from '@/types/database';
+import type { ReservationPricingBreakdown } from '@/types/pricing';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type AdminSupabaseClient = SupabaseClient<Database>;
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
+type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
 export interface ReservationPlanItemInput {
   planId: string;
@@ -30,11 +33,26 @@ export interface UpdateReservationInput {
   specialRequests: string;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  status?: ReservationStatus;
   totalAmount: number;
+  optionsJson?: Database['public']['Tables']['guest_reservations']['Row']['options_json'];
   planId?: string;
   requestedSiteCount?: number;
   selectedSiteNumbers?: string[];
   planItems?: ReservationPlanItemInput[];
+}
+
+export interface ReservationDetailUpdateInput {
+  status: ReservationStatus;
+  totalAmount: number;
+  optionsJson?: Database['public']['Tables']['guest_reservations']['Row']['options_json'];
+  pricingBreakdown?: ReservationPricingBreakdown;
+  paymentMethod?: PaymentMethod;
+  userName?: string;
+  guests?: number;
+  adults?: number;
+  children?: number;
+  infants?: number;
 }
 
 export type UpdateResult =
@@ -146,7 +164,13 @@ export async function updateReservationInDatabase(
       special_requests: specialRequests,
       payment_method: input.paymentMethod,
       payment_status: input.paymentStatus,
+      status: input.status ?? current.status,
+      checked_in_at:
+        (input.status ?? current.status) === 'checked_in'
+          ? current.checked_in_at ?? new Date().toISOString()
+          : null,
       total_amount: input.totalAmount,
+      options_json: input.optionsJson as Database['public']['Tables']['guest_reservations']['Update']['options_json'] | undefined,
     })
     .eq('id', id)
     .select()
@@ -154,6 +178,115 @@ export async function updateReservationInDatabase(
 
   if (updateErr) {
     return { success: false, error: updateErr.message };
+  }
+
+  const changes = buildChanges(current, updated);
+
+  await sideEffects.logAdminAction?.({
+    adminEmail,
+    actionType: 'reservation_update',
+    targetType: 'reservation',
+    targetId: id,
+    before: pickFields(current),
+    after: pickFields(updated),
+  });
+
+  await sideEffects.notifyReservationUpdated?.(id, current.user_email, changes);
+
+  return { success: true, reservation: updated };
+}
+
+export async function updateReservationDetailInDatabase(
+  supabaseClient: AdminSupabaseClient,
+  id: string,
+  input: ReservationDetailUpdateInput,
+  adminEmail: string,
+  sideEffects: ReservationUpdateSideEffects = {},
+): Promise<UpdateResult> {
+  const { data: current, error: fetchErr } = await supabaseClient
+    .from('guest_reservations')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !current) {
+    return { success: false, error: '予約が見つかりません。' };
+  }
+
+  const currentPricingBreakdown = coerceReservationPricingBreakdown(current.pricing_breakdown);
+  const derivedOptionsAmount = Array.isArray(input.optionsJson)
+    ? (input.optionsJson as unknown[]).reduce<number>((sum, item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return sum;
+        const source = item as Record<string, unknown>;
+        return sum + (typeof source.subtotal === 'number' ? source.subtotal : 0);
+      }, 0)
+    : 0;
+
+  const nextPricingBreakdown = input.pricingBreakdown
+    ? {
+        ...input.pricingBreakdown,
+        optionsAmount: derivedOptionsAmount,
+        totalAmount: input.totalAmount,
+      }
+    : currentPricingBreakdown
+      ? {
+          ...currentPricingBreakdown,
+          optionsAmount: derivedOptionsAmount,
+          totalAmount: input.totalAmount,
+        }
+      : current.pricing_breakdown;
+
+  const nextStatus = input.status ?? current.status;
+  const nextAdults = Math.max(
+    0,
+    Math.trunc(
+      Number(
+        input.adults ??
+          current.adults ??
+          Math.max((current.guests ?? 1) - (current.children ?? 0) - (current.infants ?? 0), 1),
+      ),
+    ) || 0,
+  );
+  const nextChildren = Math.max(0, Math.trunc(Number(input.children ?? current.children ?? 0)) || 0);
+  const nextInfants = Math.max(0, Math.trunc(Number(input.infants ?? current.infants ?? 0)) || 0);
+  const nextGuests = Math.max(
+    1,
+    Math.trunc(Number(input.guests ?? nextAdults + nextChildren + nextInfants)) ||
+      nextAdults + nextChildren + nextInfants ||
+      1,
+  );
+
+  const { data: updated, error: updateErr } = await supabaseClient
+    .from('guest_reservations')
+    .update({
+      user_name: input.userName?.trim() ? input.userName.trim() : current.user_name,
+      adults: nextAdults,
+      children: nextChildren,
+      infants: nextInfants,
+      guests: nextGuests,
+      status: nextStatus,
+      checked_in_at: nextStatus === 'checked_in' ? current.checked_in_at ?? new Date().toISOString() : null,
+      payment_method: input.paymentMethod ?? current.payment_method,
+      options_json:
+        input.optionsJson as Database['public']['Tables']['guest_reservations']['Update']['options_json'] | undefined,
+      total_amount: input.totalAmount,
+      pricing_breakdown:
+        nextPricingBreakdown as Database['public']['Tables']['guest_reservations']['Update']['pricing_breakdown'],
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateErr || !updated) {
+    console.error('[reservation-detail-update] error', updateErr);
+    console.error('[reservation-detail-update] params', {
+      reservationId: id,
+      status: input.status,
+      additionalItemsCount: Array.isArray(input.optionsJson) ? input.optionsJson.length : 0,
+      totalAmount: input.totalAmount,
+    });
+    return { success: false, error: updateErr?.message ?? '予約情報を保存できませんでした。' };
   }
 
   const changes = buildChanges(current, updated);
@@ -181,6 +314,20 @@ export async function updateReservation(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'update', id, input, adminEmail }),
+  });
+
+  return response.json();
+}
+
+export async function updateReservationDetail(
+  id: string,
+  input: ReservationDetailUpdateInput,
+  adminEmail: string,
+): Promise<UpdateResult> {
+  const response = await fetch('/api/admin/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'detail-update', id, input, adminEmail }),
   });
 
   return response.json();
@@ -485,6 +632,9 @@ function buildChanges(
     'payment_method',
     'payment_status',
     'total_amount',
+    'status',
+    'options_json',
+    'pricing_breakdown',
   ] as const;
 
   for (const key of keys) {

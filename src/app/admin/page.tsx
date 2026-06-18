@@ -76,6 +76,14 @@ export default function AdminDashboardPage() {
   return (
     <div className="max-w-5xl">
       <h1 className="mb-4 text-xl font-bold text-gray-900">ダッシュボード</h1>
+      <div className="mb-5">
+        <Link
+          href="/admin/easy-mode"
+          className="inline-flex min-h-16 items-center justify-center rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-base font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+        >
+          かんたんモードへ
+        </Link>
+      </div>
 
       {loading ? (
         <p className="text-sm text-gray-400">読み込み中...</p>

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  CUSTOMER_CHECKIN_COOKIE,
   getQrAccessSupabaseClient,
   isSameQrAccessCustomer,
   QR_ACCESS_COOKIE,
+  verifyCustomerCheckinSessionToken,
   verifyQrAccessSessionToken,
 } from '@/lib/qrAccessServer';
 import type { Database, Json } from '@/types/database';
@@ -13,9 +15,11 @@ function getIdentity(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const reservationId = searchParams.get('id');
   const qrToken = searchParams.get('token');
+  const entryToken = searchParams.get('entryToken');
   return {
     reservationId: reservationId && reservationId.length > 0 ? reservationId : null,
     qrToken: qrToken && qrToken.length > 0 ? qrToken : null,
+    entryToken: entryToken && entryToken.length > 0 ? entryToken : null,
   };
 }
 
@@ -47,6 +51,7 @@ function toPublicReservation(
     id: reservation.id,
     receptionCode: reservation.id.replace(/-/g, '').slice(0, 8).toUpperCase(),
     status: reservation.status,
+    checkinFlowStatus: reservation.checkin_flow_status,
     planName: reservation.plan_id ? planNameMap.get(reservation.plan_id) ?? 'プラン未設定' : 'プラン未設定',
     siteNumber: reservation.site_number,
     siteName: reservation.site_name,
@@ -72,12 +77,19 @@ function toPublicReservation(
 export async function GET(request: NextRequest) {
   const identity = getIdentity(request);
   if (!identity.reservationId && !identity.qrToken) {
-    return NextResponse.json({ error: 'QRコードの予約識別情報が不足しています。' }, { status: 400 });
+    return NextResponse.json({ error: '予約情報が見つかりません。' }, { status: 400 });
   }
 
-  const sessionToken = request.cookies.get(QR_ACCESS_COOKIE)?.value;
-  if (!verifyQrAccessSessionToken(sessionToken, identity)) {
-    return NextResponse.json({ error: 'QR閲覧には管理人パスワード認証が必要です。' }, { status: 401 });
+  const qrSessionToken = request.cookies.get(QR_ACCESS_COOKIE)?.value;
+  const customerSessionToken = request.cookies.get(CUSTOMER_CHECKIN_COOKIE)?.value;
+  const hasQrAccess = verifyQrAccessSessionToken(qrSessionToken, identity);
+  const hasCustomerAccess = identity.reservationId
+    ? verifyCustomerCheckinSessionToken(customerSessionToken, { reservationId: identity.reservationId }) ||
+      verifyCustomerCheckinSessionToken(identity.entryToken ?? undefined, { reservationId: identity.reservationId })
+    : false;
+
+  if (!hasQrAccess && !hasCustomerAccess) {
+    return NextResponse.json({ error: 'この予約の確認権限がありません。' }, { status: 401 });
   }
 
   try {
@@ -92,7 +104,7 @@ export async function GET(request: NextRequest) {
 
     if (targetError) throw targetError;
     if (!target) {
-      return NextResponse.json({ error: '該当する予約が見つかりません。' }, { status: 404 });
+      return NextResponse.json({ error: '対象の予約が見つかりません。' }, { status: 404 });
     }
 
     const [{ data: reservations, error: reservationsError }, { data: plans }, { data: options }] = await Promise.all([

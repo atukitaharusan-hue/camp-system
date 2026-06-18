@@ -2,7 +2,9 @@ export type NotificationType =
   | 'reservation_created'
   | 'reservation_updated'
   | 'reservation_cancelled'
-  | 'checkin_reminder';
+  | 'checkin_reminder'
+  | 'checkin_arrived_pending'
+  | 'checkin_completed';
 
 export type NotificationChannel = 'email' | 'line' | 'internal';
 
@@ -14,10 +16,6 @@ export interface CreateNotificationInput {
   payload?: Record<string, unknown>;
 }
 
-/**
- * 通知ログを1件記録する。
- * 現時点では実際の送信は行わず、status='queued' で保存。
- */
 export async function createNotificationLog(input: CreateNotificationInput) {
   const response = await fetch('/api/admin/notifications', {
     method: 'POST',
@@ -32,14 +30,7 @@ export async function createNotificationLog(input: CreateNotificationInput) {
   }
 }
 
-/**
- * 予約作成時の通知ログを一括作成
- */
-export async function notifyReservationCreated(
-  reservationId: string,
-  userEmail?: string | null,
-) {
-  // 管理者通知（internal）
+export async function notifyReservationCreated(reservationId: string, userEmail?: string | null) {
   await createNotificationLog({
     reservationId,
     type: 'reservation_created',
@@ -47,7 +38,6 @@ export async function notifyReservationCreated(
     payload: { message: '新しい予約が作成されました' },
   });
 
-  // ユーザー通知（email）- メールがあれば
   if (userEmail) {
     await createNotificationLog({
       reservationId,
@@ -59,9 +49,6 @@ export async function notifyReservationCreated(
   }
 }
 
-/**
- * 予約変更時の通知ログを一括作成
- */
 export async function notifyReservationUpdated(
   reservationId: string,
   userEmail?: string | null,
@@ -71,7 +58,7 @@ export async function notifyReservationUpdated(
     reservationId,
     type: 'reservation_updated',
     channel: 'internal',
-    payload: { message: '予約が変更されました', changes },
+    payload: { message: '予約内容が更新されました', changes },
   });
 
   if (userEmail) {
@@ -80,18 +67,12 @@ export async function notifyReservationUpdated(
       type: 'reservation_updated',
       channel: 'email',
       recipient: userEmail,
-      payload: { message: '予約内容が変更されました', changes },
+      payload: { message: '予約内容が更新されました', changes },
     });
   }
 }
 
-/**
- * 予約キャンセル時の通知ログを一括作成
- */
-export async function notifyReservationCancelled(
-  reservationId: string,
-  userEmail?: string | null,
-) {
+export async function notifyReservationCancelled(reservationId: string, userEmail?: string | null) {
   await createNotificationLog({
     reservationId,
     type: 'reservation_cancelled',
@@ -110,9 +91,6 @@ export async function notifyReservationCancelled(
   }
 }
 
-/**
- * 指定予約の通知履歴を取得
- */
 export async function fetchNotificationsByReservation(reservationId: string) {
   const params = new URLSearchParams({ limit: '100', reservationId });
   const response = await fetch(`/api/admin/notifications?${params.toString()}`);
@@ -124,9 +102,6 @@ export async function fetchNotificationsByReservation(reservationId: string) {
   return Array.isArray(payload.notifications) ? payload.notifications : [];
 }
 
-/**
- * 直近の通知ログ一覧
- */
 export async function fetchRecentNotifications(limit = 20) {
   const response = await fetch(`/api/admin/notifications?limit=${encodeURIComponent(String(limit))}`);
   if (!response.ok) {
@@ -139,9 +114,11 @@ export async function fetchRecentNotifications(limit = 20) {
 
 const TYPE_LABELS: Record<string, string> = {
   reservation_created: '予約作成',
-  reservation_updated: '予約変更',
+  reservation_updated: '予約更新',
   reservation_cancelled: '予約キャンセル',
   checkin_reminder: 'チェックイン案内',
+  checkin_arrived_pending: 'セルフチェックイン確定',
+  checkin_completed: 'チェックイン完了',
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

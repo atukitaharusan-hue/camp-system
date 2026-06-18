@@ -156,6 +156,201 @@ export interface AdminSiteMapSettings {
   imageUrls: string[];
 }
 
+export type EasyModeCategoryType =
+  | 'today_guests'
+  | 'availability'
+  | 'checkout'
+  | 'inventory'
+  | 'staff_memos'
+  | 'reservations'
+  | 'sales_report'
+  | 'events'
+  | 'custom_memo'
+  | 'custom_link'
+  | 'custom_checklist'
+  | 'custom_products'
+  | 'custom_events'
+  | 'custom_reservations';
+
+export type EasyModeDeviceTarget = 'all' | 'mobile' | 'tablet' | 'pc';
+export type EasyModeRoleTarget = 'all' | 'admin_only' | 'staff_only' | 'specific';
+export type EasyModeDisplayCondition =
+  | 'always'
+  | 'today_only'
+  | 'has_reservations'
+  | 'has_events'
+  | 'low_stock'
+  | 'has_pending_memos';
+
+export interface EasyModeCategorySetting {
+  id: string;
+  name: string;
+  type: EasyModeCategoryType;
+  icon: string;
+  color: string;
+  sortOrder: number;
+  isVisible: boolean;
+  targetDevice: EasyModeDeviceTarget;
+  targetRole: EasyModeRoleTarget;
+  targetStaffIds: string[];
+  displayCondition: EasyModeDisplayCondition;
+  config: Record<string, unknown>;
+  description: string;
+}
+
+export interface EasyModeChecklistItem {
+  id: string;
+  title: string;
+  description: string;
+  assignedTo: string;
+  dueAt: string;
+  isCompleted: boolean;
+  completedAt: string | null;
+  sortOrder: number;
+  resetDaily: boolean;
+}
+
+export interface EasyModeCustomMemoConfig {
+  content: string;
+  lastUpdatedBy: string;
+  updatedAt: string;
+}
+
+export interface EasyModeCustomLinkItem {
+  id: string;
+  title: string;
+  url: string;
+  icon: string;
+  description: string;
+}
+
+export interface EasyModeCustomLinkConfig {
+  links: EasyModeCustomLinkItem[];
+}
+
+export interface EasyModeChecklistConfig {
+  items: EasyModeChecklistItem[];
+  lastResetDate: string;
+}
+
+export interface EasyModeCustomProductsConfig {
+  optionCategory: string;
+  titleContains: string;
+  showStock: boolean;
+  showPrice: boolean;
+  allowCheckout: boolean;
+}
+
+export interface EasyModeCustomEventsConfig {
+  filter: 'today' | 'this_week' | 'upcoming';
+  showParticipants: boolean;
+  showNotes: boolean;
+}
+
+export interface EasyModeCustomReservationsConfig {
+  filter: 'arrived_pending' | 'not_arrived' | 'checked_in' | 'needs_attention';
+  date: 'today' | 'tomorrow' | 'all';
+}
+
+export type EasyModeFooterActionType =
+  | 'home'
+  | 'new_reservation'
+  | 'cancel'
+  | 'site_assignment'
+  | 'checkin'
+  | 'checkout'
+  | 'custom_link';
+
+export interface EasyModeFooterItemSetting {
+  id: string;
+  label: string;
+  actionType: EasyModeFooterActionType;
+  icon: string;
+  sortOrder: number;
+  isVisible: boolean;
+  isRequired: boolean;
+  customUrl: string;
+}
+
+export type AccountingSubjectKind =
+  | 'lodging'
+  | 'entry_fee'
+  | 'tax'
+  | 'rental'
+  | 'event'
+  | 'shop'
+  | 'other';
+
+export interface AccountingSubjectSetting {
+  id: string;
+  name: string;
+  defaultUnitPrice: number;
+  kind: AccountingSubjectKind;
+  sortOrder: number;
+  isActive: boolean;
+  notes: string;
+}
+
+export interface SalesReportCategorySetting {
+  id: string;
+  parentCategoryName: string;
+  subjectIds: string[];
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface SalesReportOutputSetting {
+  id: string;
+  reportName: string;
+  includedCategories: string[];
+  splitByCategory: boolean;
+  outputFormat: 'pdf';
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export type RegisterSalePaymentMethod = 'cash' | 'card' | 'paid' | 'other';
+
+export interface PreviewRegisterSaleItem {
+  id: string;
+  accountingSubjectId: string;
+  accountingSubjectName: string;
+  parentCategoryName: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface PreviewRegisterSale {
+  id: string;
+  reservationId: string | null;
+  reservationCode: string | null;
+  customerName: string;
+  siteNumber: string;
+  checkInDate: string | null;
+  planName: string;
+  guests?: number;
+  adults?: number;
+  children?: number;
+  infants?: number;
+  saleType: 'register' | 'additional' | 'adjustment' | 'refund';
+  paymentMethod: RegisterSalePaymentMethod;
+  totalAmount: number;
+  receivedAmount: number | null;
+  changeAmount: number | null;
+  createdAt: string;
+  items: PreviewRegisterSaleItem[];
+}
+
+export type EasyModeInventoryStatus = 'available' | 'sold_out' | 'inactive';
+
+export interface EasyModeInventoryOverride {
+  optionId: string;
+  status: EasyModeInventoryStatus;
+  remaining: number | null;
+  updatedAt: string;
+}
+
 export interface SalesRule {
   id: string;
   closedDates: string[];

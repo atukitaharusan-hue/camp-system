@@ -108,10 +108,10 @@ export default function AdminQrScreenPage() {
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-amber-950">QR閲覧用 管理人専用パスワード</h2>
+            <h2 className="text-base font-semibold text-amber-950">管理人専用パスワード</h2>
             <p className="mt-1 text-sm leading-6 text-amber-800">
-              ユーザーのQRコードをスマホで開いた際、個人情報を表示する前にこのパスワードを要求します。
-              パスワードは平文では保存せず、ハッシュ化して保存します。
+              お客様マイページのチェックイン用QRを管理人が読み取ったあと、このパスワードで管理人用の対応画面へ入ります。
+              パスワードは平文では保存せず、ハッシュ化して保存します。未設定の間は通常の管理画面パスワードでも入れます。
             </p>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${passwordStatus.configured ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>

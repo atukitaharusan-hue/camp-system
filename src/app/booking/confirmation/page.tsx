@@ -21,6 +21,7 @@ import { validateReservation, formatUserErrors } from '@/lib/validateReservation
 import { generateReceptionCode } from '@/types/reservation';
 import type { OptionsPayload } from '@/types/options';
 import type { PricingLineItem, ReservationPricingBreakdown } from '@/types/pricing';
+import { useLiff } from '@/contexts/LiffContext';
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('ja-JP', {
@@ -138,11 +139,17 @@ function mergeDraftSources({
   persistedDraft,
   snapshot,
   optionsPayload,
+  liveLineProfile,
 }: {
   storeDraft: BookingDraft;
   persistedDraft: BookingDraft | null;
   snapshot: BookingDraft | null;
   optionsPayload: OptionsPayload | null;
+  liveLineProfile: {
+    userId: string | null;
+    displayName: string | null;
+    pictureUrl: string | null;
+  };
 }) {
   const selectedSiteNumbers = getNormalizedSelectedSiteNumbers({
     siteId: pickString(
@@ -368,16 +375,19 @@ function mergeDraftSources({
     },
     lineProfile: {
       userId: pickString(
+        liveLineProfile.userId,
         storeDraft.lineProfile.userId,
         persistedDraft?.lineProfile.userId,
         snapshot?.lineProfile.userId,
       ),
       displayName: pickString(
+        liveLineProfile.displayName,
         storeDraft.lineProfile.displayName,
         persistedDraft?.lineProfile.displayName,
         snapshot?.lineProfile.displayName,
       ),
       pictureUrl: pickString(
+        liveLineProfile.pictureUrl,
         storeDraft.lineProfile.pictureUrl,
         persistedDraft?.lineProfile.pictureUrl,
         snapshot?.lineProfile.pictureUrl,
@@ -389,6 +399,8 @@ function mergeDraftSources({
 export default function BookingConfirmationPage() {
   const storeDraft = useBookingDraftStore((state) => state);
   const resetDraft = useBookingDraftStore((state) => state.reset);
+  const setLineProfile = useBookingDraftStore((state) => state.setLineProfile);
+  const { isReady: isLiffReady, profile } = useLiff();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -419,6 +431,24 @@ export default function BookingConfirmationPage() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!isLiffReady || !profile) return;
+    setLineProfile({
+      userId: profile.userId,
+      displayName: profile.displayName,
+      pictureUrl: profile.pictureUrl ?? null,
+    });
+  }, [isLiffReady, profile, setLineProfile]);
+
+  const liveLineProfile = useMemo(
+    () => ({
+      userId: profile?.userId ?? null,
+      displayName: profile?.displayName ?? null,
+      pictureUrl: profile?.pictureUrl ?? null,
+    }),
+    [profile],
+  );
+
   const resolved = useMemo(
     () =>
       mergeDraftSources({
@@ -426,8 +456,9 @@ export default function BookingConfirmationPage() {
         persistedDraft,
         snapshot: confirmationSnapshot,
         optionsPayload,
+        liveLineProfile,
       }),
-    [confirmationSnapshot, optionsPayload, persistedDraft, storeDraft],
+    [confirmationSnapshot, liveLineProfile, optionsPayload, persistedDraft, storeDraft],
   );
 
   const accommodationAmount = calculatePlanAccommodationAmount(

@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import { fetchReservationByIdAdmin } from '@/lib/admin/fetchReservations';
@@ -10,16 +10,15 @@ import { fetchPlans } from '@/lib/admin/fetchData';
 import { cancelReservation } from '@/lib/admin/updateReservation';
 import {
   fetchNotificationsByReservation,
-  getNotificationTypeLabel,
   getChannelLabel,
   getNotificationStatusLabel,
+  getNotificationTypeLabel,
 } from '@/lib/admin/notificationLog';
 import { fetchActionsByTarget, getActionLabel } from '@/lib/admin/actionLog';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
 import {
-  generateReceptionCode,
   calculateNights,
-  getSiteTypeLabel,
+  generateReceptionCode,
   getPaymentMethodLabel,
   getPaymentStatusLabel,
 } from '@/types/reservation';
@@ -29,36 +28,42 @@ import type { AdminPlan } from '@/types/admin';
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
-const statusConfig: Record<ReservationStatus, { label: string; className: string }> = {
-  pending: { label: '予約待ち', className: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '予約確定', className: 'bg-green-100 text-green-800' },
-  checked_in: { label: 'チェックイン済み', className: 'bg-blue-100 text-blue-800' },
-  completed: { label: '利用完了', className: 'bg-gray-100 text-gray-600' },
-  cancelled: { label: 'キャンセル済み', className: 'bg-red-100 text-red-800' },
-  waitlisted: { label: 'キャンセル待ち', className: 'bg-amber-100 text-amber-800' },
-};
-
-interface OptionEntry {
+type OptionEntry = {
   name?: string;
   quantity?: number;
   subtotal?: number;
-  [key: string]: Json | undefined;
-}
+};
 
-interface MultiPlanItem {
+type MultiPlanItem = {
   planId: string;
   siteCount: number;
   siteNumbers: string[];
-}
+};
+
+const statusConfig: Partial<Record<ReservationStatus, { label: string; className: string }>> = {
+  pending: { label: '仮予約', className: 'bg-yellow-100 text-yellow-800' },
+  confirmed: { label: '予約確定', className: 'bg-green-100 text-green-800' },
+  checked_in: { label: 'チェックイン済み', className: 'bg-blue-100 text-blue-800' },
+  completed: { label: '完了', className: 'bg-gray-100 text-gray-700' },
+  cancelled: { label: 'キャンセル', className: 'bg-red-100 text-red-800' },
+};
 
 function parseOptions(json: Json): OptionEntry[] {
-  if (Array.isArray(json)) {
-    return json as OptionEntry[];
-  }
-  return [];
+  if (!Array.isArray(json)) return [];
+  return json.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const source = item as Record<string, unknown>;
+    return [
+      {
+        name: typeof source.name === 'string' ? source.name : undefined,
+        quantity: typeof source.quantity === 'number' ? source.quantity : undefined,
+        subtotal: typeof source.subtotal === 'number' ? source.subtotal : undefined,
+      },
+    ];
+  });
 }
 
-function getSelectedSiteNumbers(value: Database['public']['Tables']['guest_reservations']['Row']['selected_site_numbers']) {
+function getSelectedSiteNumbers(value: GuestReservationRow['selected_site_numbers']) {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
@@ -71,22 +76,68 @@ function parseMultiPlanItems(specialRequests: string | null): MultiPlanItem[] {
   try {
     const parsed = JSON.parse(json) as unknown;
     if (!Array.isArray(parsed)) return [];
+
     return parsed
       .map((item) => {
         if (!item || typeof item !== 'object') return null;
-        const candidate = item as Partial<MultiPlanItem>;
+        const source = item as Partial<MultiPlanItem>;
+        const planId = typeof source.planId === 'string' ? source.planId : '';
+        if (!planId) return null;
+
         return {
-          planId: typeof candidate.planId === 'string' ? candidate.planId : '',
-          siteCount: Math.max(1, Number(candidate.siteCount ?? 1)),
-          siteNumbers: Array.isArray(candidate.siteNumbers)
-            ? candidate.siteNumbers.filter((siteNumber): siteNumber is string => typeof siteNumber === 'string')
+          planId,
+          siteCount: Math.max(1, Number(source.siteCount ?? 1)),
+          siteNumbers: Array.isArray(source.siteNumbers)
+            ? source.siteNumbers.filter((siteNumber): siteNumber is string => typeof siteNumber === 'string')
             : [],
         };
       })
-      .filter((item): item is MultiPlanItem => Boolean(item?.planId));
+      .filter((item): item is MultiPlanItem => Boolean(item));
   } catch {
     return [];
   }
+}
+
+function stripSystemLines(value: string | null) {
+  const systemPrefixes = [
+    'PLAN_ID:',
+    'REQUESTED_SITE_COUNT:',
+    'SELECTED_SITE_NUMBERS:',
+    'MULTI_PLAN_ITEMS:',
+    'GENDER:',
+    'OCCUPATION:',
+    'POSTAL_CODE:',
+    'PREFECTURE:',
+    'CITY:',
+    'ADDRESS_LINE:',
+    'BUILDING:',
+    'LINE_NAME:',
+    'LINE_ID:',
+    'REFERRAL_SOURCE:',
+  ];
+
+  return (value ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !systemPrefixes.some((prefix) => line.startsWith(prefix)))
+    .map((line) => (line.startsWith('NOTE:') ? line.slice(5).trim() : line))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildPlanSummary(reservation: GuestReservationRow, multiPlanItems: MultiPlanItem[], planNameMap: Map<string, string>) {
+  if (multiPlanItems.length > 0) {
+    return multiPlanItems
+      .map((item) => {
+        const planName = planNameMap.get(item.planId) ?? item.planId;
+        const selectedSites = item.siteNumbers.length > 0 ? ` / ${item.siteNumbers.join(', ')}` : '';
+        return `${planName} (${item.siteCount}サイト${selectedSites})`;
+      })
+      .join(' / ');
+  }
+
+  if (!reservation.plan_id) return '未設定';
+  return planNameMap.get(reservation.plan_id) ?? reservation.plan_id;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -119,9 +170,35 @@ export default function AdminReservationDetailPage() {
   const [notifications, setNotifications] = useState<Database['public']['Tables']['notification_logs']['Row'][]>([]);
   const [actionLogs, setActionLogs] = useState<Database['public']['Tables']['admin_action_logs']['Row'][]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
+  const [syncingMyPage, setSyncingMyPage] = useState(false);
+  const [myPageSyncMessage, setMyPageSyncMessage] = useState<string | null>(null);
+  const [myPageLinkStatus, setMyPageLinkStatus] = useState<'linked' | 'support' | 'unlinked'>('unlinked');
+  const [myPageLineUserId, setMyPageLineUserId] = useState<string | null>(null);
+
+  const loadMyPageStatus = useCallback(async () => {
+    const response = await fetch('/api/admin/mypage-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'status',
+        reservationIds: [id],
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          statuses?: Record<string, { linkStatus?: 'linked' | 'support' | 'unlinked'; lineUserId?: string | null }>;
+        }
+      | null;
+
+    const status = payload?.statuses?.[id];
+    if (!status) return;
+    setMyPageLinkStatus(status.linkStatus ?? 'unlinked');
+    setMyPageLineUserId(status.lineUserId ?? null);
+  }, [id]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+
     const result = await fetchReservationByIdAdmin(id);
     if (result.error) {
       setError(result.error);
@@ -140,17 +217,12 @@ export default function AdminReservationDetailPage() {
     setNotifications(notifs);
     setActionLogs(logs);
     setPlans(fetchedPlans);
+    await loadMyPageStatus();
     setLoading(false);
-  }, [id]);
+  }, [id, loadMyPageStatus]);
 
   useEffect(() => {
-    const timerId = window.setTimeout(() => {
-      void loadData();
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timerId);
-    };
+    void loadData();
   }, [loadData]);
 
   const handleCancel = async () => {
@@ -166,6 +238,32 @@ export default function AdminReservationDetailPage() {
       setError(result.error ?? 'キャンセルに失敗しました。');
     }
     setCancelling(false);
+  };
+
+  const handleSyncMyPage = async () => {
+    setSyncingMyPage(true);
+    setMyPageSyncMessage(null);
+
+    try {
+      const response = await fetch('/api/admin/mypage-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservationId: id }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { success?: boolean; reason?: string; message?: string; error?: string }
+        | null;
+
+      if (!response.ok) {
+        setMyPageSyncMessage(payload?.error ?? 'お客様マイページの更新に失敗しました。');
+        return;
+      }
+
+      setMyPageSyncMessage(payload?.message ?? 'お客様マイページ向けの連携情報を更新しました。');
+      await loadMyPageStatus();
+    } finally {
+      setSyncingMyPage(false);
+    }
   };
 
   if (loading) {
@@ -190,7 +288,9 @@ export default function AdminReservationDetailPage() {
   }
 
   const r = reservation;
-  const badge = statusConfig[(r.status ?? 'pending') as ReservationStatus];
+  const badge =
+    statusConfig[(r.status ?? 'pending') as ReservationStatus] ??
+    { label: '不明', className: 'bg-slate-100 text-slate-600' };
   const nights = calculateNights(r.check_in_date, r.check_out_date);
   const options = parseOptions(r.options_json);
   const pricingBreakdown = coerceReservationPricingBreakdown(r.pricing_breakdown);
@@ -202,6 +302,10 @@ export default function AdminReservationDetailPage() {
   });
   const multiPlanItems = parseMultiPlanItems(r.special_requests);
   const planNameMap = new Map(plans.map((plan) => [plan.id, plan.name]));
+  const planSummary = buildPlanSummary(r, multiPlanItems, planNameMap);
+  const noteText = stripSystemLines(r.special_requests) || 'なし';
+  const myPageLinkLabel =
+    myPageLinkStatus === 'linked' ? 'LINE連携済み' : myPageLinkStatus === 'support' ? '補助情報のみ' : '未連携';
 
   return (
     <div className="max-w-3xl">
@@ -211,12 +315,20 @@ export default function AdminReservationDetailPage() {
             一覧
           </Link>
           <h1 className="text-xl font-bold text-gray-900">予約詳細: {generateReceptionCode(r.id)}</h1>
-          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}>
+          <span className={`inline-flex min-w-24 items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ${badge.className}`}>
             {badge.label}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSyncMyPage()}
+            disabled={syncingMyPage}
+            className="rounded border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+          >
+            {syncingMyPage ? '更新中...' : 'お客様マイページを更新'}
+          </button>
           {r.status !== 'cancelled' && (
             <>
               <Link
@@ -238,7 +350,7 @@ export default function AdminReservationDetailPage() {
                     onClick={() => setCancelConfirm(false)}
                     className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
                   >
-                    戻す
+                    戻る
                   </button>
                 </div>
               ) : (
@@ -262,6 +374,12 @@ export default function AdminReservationDetailPage() {
         </div>
       </div>
 
+      {myPageSyncMessage ? (
+        <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {myPageSyncMessage}
+        </div>
+      ) : null}
+
       <Section title="基本情報">
         <dl>
           <Field label="予約ID" value={<span className="font-mono text-xs">{r.id}</span>} />
@@ -269,7 +387,14 @@ export default function AdminReservationDetailPage() {
           <Field label="予約者名" value={r.user_name} />
           <Field label="メール" value={r.user_email ?? '未設定'} />
           <Field label="電話番号" value={r.user_phone ?? '未設定'} />
-          <Field label="作成日時" value={new Date(r.created_at).toLocaleString('ja-JP')} />
+          <Field label="登録日時" value={new Date(r.created_at).toLocaleString('ja-JP')} />
+        </dl>
+      </Section>
+
+      <Section title="マイページ連携">
+        <dl>
+          <Field label="LINE連携状態" value={myPageLinkLabel} />
+          <Field label="予約のLINE ID" value={myPageLineUserId ?? r.user_identifier ?? '未登録'} />
         </dl>
       </Section>
 
@@ -278,13 +403,11 @@ export default function AdminReservationDetailPage() {
           <Field label="チェックイン" value={r.check_in_date} />
           <Field label="チェックアウト" value={r.check_out_date} />
           <Field label="宿泊数" value={`${nights}泊`} />
-          <Field label="人数合計" value={`${r.guests}名`} />
-          <Field label="人数内訳" value={`大人(中学生以上) ${r.adults ?? 0} / 子ども ${r.children ?? 0} / 幼児 ${r.infants ?? 0}`} />
-          <Field label="サイト指定" value={siteLabel} />
-          <Field label="サイト名" value={r.site_name ?? '未設定'} />
-          <Field label="サイト種別" value={getSiteTypeLabel(r.site_type ?? 'standard')} />
-          <Field label="キャンプ場" value={r.campground_name ?? '未設定'} />
-          <Field label="特記事項" value={r.special_requests ?? 'なし'} />
+          <Field label="合計人数" value={`${r.guests}名`} />
+          <Field label="人数内訳" value={`大人 ${r.adults ?? 0} / 子ども ${r.children ?? 0} / 幼児 ${r.infants ?? 0}`} />
+          <Field label="プラン" value={planSummary} />
+          <Field label="サイト情報" value={siteLabel} />
+          <Field label="備考" value={noteText} />
         </dl>
       </Section>
 
@@ -295,9 +418,9 @@ export default function AdminReservationDetailPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-xs text-gray-500">
-                <th className="py-2 text-left">項目</th>
+                <th className="py-2 text-left">項目名</th>
                 <th className="py-2 text-right">数量</th>
-                <th className="py-2 text-right">小計</th>
+                <th className="py-2 text-right">金額</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -305,9 +428,7 @@ export default function AdminReservationDetailPage() {
                 <tr key={index}>
                   <td className="py-2 text-gray-900">{opt.name ?? '-'}</td>
                   <td className="py-2 text-right text-gray-700">{opt.quantity ?? '-'}</td>
-                  <td className="py-2 text-right text-gray-700">
-                    {opt.subtotal != null ? `${Number(opt.subtotal).toLocaleString()}円` : '-'}
-                  </td>
+                  <td className="py-2 text-right text-gray-700">{opt.subtotal != null ? `${Number(opt.subtotal).toLocaleString()}円` : '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -315,28 +436,14 @@ export default function AdminReservationDetailPage() {
         )}
       </Section>
 
-      <Section title="同意状況">
-        <dl>
-          <Field label="キャンセルポリシー" value={r.agreed_cancellation ? '同意済み' : '未同意'} />
-          <Field label="利用規約" value={r.agreed_terms ? '同意済み' : '未同意'} />
-          <Field label="SNS掲載" value={r.agreed_sns ? '同意済み' : '未同意'} />
-        </dl>
-      </Section>
-
-      <Section title="料金情報">
+      <Section title="支払い情報">
         <dl>
           <Field label="合計金額" value={`${Number(r.total_amount).toLocaleString()}円`} />
           {pricingBreakdown && (
             <>
               <Field label="宿泊料金" value={`${pricingBreakdown.accommodationAmount.toLocaleString()}円`} />
-              <Field label="サイト指定料金" value={`${pricingBreakdown.designationFeeAmount.toLocaleString()}円`} />
-              <Field label="オプション料金" value={`${pricingBreakdown.optionsAmount.toLocaleString()}円`} />
-              {pricingBreakdown.mandatoryFees.map((fee) => (
-                <Field key={fee.id} label={fee.label} value={`${fee.amount.toLocaleString()}円`} />
-              ))}
-              {pricingBreakdown.lodgingTax && (
-                <Field label={pricingBreakdown.lodgingTax.label} value={`${pricingBreakdown.lodgingTax.amount.toLocaleString()}円`} />
-              )}
+              <Field label="指定料金" value={`${pricingBreakdown.designationFeeAmount.toLocaleString()}円`} />
+              <Field label="追加項目合計" value={`${pricingBreakdown.optionsAmount.toLocaleString()}円`} />
             </>
           )}
           <Field label="支払い方法" value={getPaymentMethodLabel(r.payment_method)} />
@@ -346,14 +453,11 @@ export default function AdminReservationDetailPage() {
 
       <Section title="チェックイン">
         <dl>
-          <Field
-            label="チェックイン日時"
-            value={r.checked_in_at ? new Date(r.checked_in_at).toLocaleString('ja-JP') : '未チェックイン'}
-          />
+          <Field label="チェックイン日時" value={r.checked_in_at ? new Date(r.checked_in_at).toLocaleString('ja-JP') : '未チェックイン'} />
         </dl>
       </Section>
 
-      {actionLogs.length > 0 && (
+      {actionLogs.length > 0 ? (
         <Section title="操作履歴">
           <div className="space-y-2">
             {actionLogs.map((log) => (
@@ -365,9 +469,9 @@ export default function AdminReservationDetailPage() {
             ))}
           </div>
         </Section>
-      )}
+      ) : null}
 
-      {notifications.length > 0 && (
+      {notifications.length > 0 ? (
         <Section title="通知履歴">
           <table className="w-full text-xs">
             <thead>
@@ -404,7 +508,7 @@ export default function AdminReservationDetailPage() {
             </tbody>
           </table>
         </Section>
-      )}
+      ) : null}
     </div>
   );
 }

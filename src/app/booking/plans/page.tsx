@@ -6,7 +6,6 @@ import { fetchPlans } from '@/lib/admin/fetchData';
 import { getPlanAvailabilityForStay, type PlanAvailabilitySummary } from '@/lib/bookingAvailability';
 import { evaluatePlanBookablePeriod } from '@/lib/planSalesPeriod';
 import { resolvePlanAccommodationAmount } from '@/lib/pricing';
-import { evaluatePlanWaitlist } from '@/lib/waitlist';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
 import type { AdminPlan } from '@/types/admin';
 
@@ -20,32 +19,14 @@ function getPricingHint(pricingMode: AdminPlan['pricingMode']) {
   return ' / 1組あたり';
 }
 
-function getStockLabel(params: {
-  validPricing: boolean;
-  salesAvailable: boolean;
-  canUseWaitlist: boolean;
-  waitlistCount: number;
-  isDisabled: boolean;
-  isLowStock: boolean;
-  availableSites: number;
-}) {
-  const { validPricing, salesAvailable, canUseWaitlist, waitlistCount, isDisabled, isLowStock, availableSites } = params;
-  if (!validPricing) return '料金未設定';
-  if (!salesAvailable) return '期間外';
-  if (canUseWaitlist) return `キャンセル待ち ${waitlistCount}組`;
-  if (isDisabled) return '満枠';
-  if (isLowStock) return `残りわずか △ ${availableSites}`;
-  return `空き ${availableSites}`;
-}
-
 export default function PlansPage() {
   const router = useRouter();
   const { stay, plan, setPlan } = useBookingDraftStore();
   const [adminPlans, setAdminPlans] = useState<AdminPlan[]>([]);
   const [availabilityByPlanId, setAvailabilityByPlanId] = useState<Record<string, PlanAvailabilitySummary>>({});
 
-  const hasStay = Boolean(stay.checkIn && stay.checkOut && stay.nights > 0);
-  const hasPlan = Boolean(plan.majorCategoryId && plan.minorPlanId);
+  const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
+  const hasPlan = !!(plan.majorCategoryId && plan.minorPlanId);
   const stayCheckIn = stay.checkIn ?? '';
   const stayCheckOut = stay.checkOut ?? '';
 
@@ -85,7 +66,6 @@ export default function PlansPage() {
     const availability = availabilityByPlanId[currentPlan.id];
     const salesWindow = evaluatePlanBookablePeriod(currentPlan, stayCheckIn, stayCheckOut);
     const availableSites = availability?.availableSites ?? 0;
-    const remainingConcurrentReservations = availability?.remainingConcurrentReservations ?? 0;
 
     const pricingResult = resolvePlanAccommodationAmount(
       {
@@ -108,23 +88,9 @@ export default function PlansPage() {
       },
     );
 
-    if (!pricingResult.valid || !salesWindow.isAvailable) return;
+    if (!pricingResult.valid || !salesWindow.isAvailable || availableSites <= 0) return;
 
-    const waitlistEvaluation = evaluatePlanWaitlist({
-      plan: currentPlan,
-      checkInDate: stayCheckIn,
-      checkOutDate: stayCheckOut,
-      activeCount: availability?.waitlistCount ?? 0,
-    });
-
-    const useWaitlist =
-      availableSites <= 0 &&
-      remainingConcurrentReservations <= 0 &&
-      waitlistEvaluation.isAccepting;
-
-    const defaultSiteCount = useWaitlist
-      ? Math.max(1, plan.requestedSiteCount || 1)
-      : Math.max(1, Math.min(availableSites, plan.requestedSiteCount || 1));
+    const defaultSiteCount = Math.max(1, Math.min(availableSites, plan.requestedSiteCount || 1));
 
     if (plan.majorCategoryId === categoryName && plan.minorPlanId === currentPlan.id) {
       setPlan({
@@ -139,8 +105,6 @@ export default function PlansPage() {
         infantPrice: 0,
         guestBandRules: [],
         requestedSiteCount: 1,
-        waitlistRequested: false,
-        waitlistMessage: null,
       });
       return;
     }
@@ -157,8 +121,6 @@ export default function PlansPage() {
       infantPrice: currentPlan.infantPrice,
       guestBandRules: currentPlan.guestBandRules,
       requestedSiteCount: defaultSiteCount,
-      waitlistRequested: useWaitlist,
-      waitlistMessage: waitlistEvaluation.message,
     });
   };
 
@@ -170,9 +132,9 @@ export default function PlansPage() {
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-md px-4 py-6 md:max-w-2xl">
         <section className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
-          プランまたはサイト情報が表示されるまでに、1分ほどかかる場合があります。
+          プランごとの予約可能枠を表示しています。
           <br />
-          お手数をおかけしますが、そのままお待ちください。
+          満枠の日は必ず「満室 ×」と表示されます。
         </section>
 
         <header className="mb-6">
@@ -209,10 +171,8 @@ export default function PlansPage() {
                     const availability = availabilityByPlanId[item.id];
                     const salesWindow = evaluatePlanBookablePeriod(item, stayCheckIn, stayCheckOut);
                     const availableSites = availability?.availableSites ?? 0;
-                    const remainingConcurrentReservations = availability?.remainingConcurrentReservations ?? 0;
                     const maxSiteCount = availability?.maxSiteCount ?? item.maxSiteCount;
-                    const maxConcurrentReservations =
-                      availability?.maxConcurrentReservations ?? item.maxConcurrentReservations;
+                    const isSoldOut = availableSites <= 0;
                     const isLowStock =
                       availableSites > 0 && maxSiteCount > 0 && availableSites / maxSiteCount < 0.1;
 
@@ -237,33 +197,16 @@ export default function PlansPage() {
                       },
                     );
 
-                    const waitlistEvaluation = evaluatePlanWaitlist({
-                      plan: item,
-                      checkInDate: stayCheckIn,
-                      checkOutDate: stayCheckOut,
-                      activeCount: availability?.waitlistCount ?? 0,
-                    });
-
-                    const canUseWaitlist =
-                      availableSites <= 0 &&
-                      remainingConcurrentReservations <= 0 &&
-                      waitlistEvaluation.isAccepting;
-
-                    const isDisabled =
-                      (!canUseWaitlist &&
-                        (availableSites <= 0 || remainingConcurrentReservations <= 0)) ||
-                      !salesWindow.isAvailable ||
-                      !pricingResult.valid;
-
-                    const stockLabel = getStockLabel({
-                      validPricing: pricingResult.valid,
-                      salesAvailable: salesWindow.isAvailable,
-                      canUseWaitlist,
-                      waitlistCount: availability?.waitlistCount ?? 0,
-                      isDisabled,
-                      isLowStock,
-                      availableSites,
-                    });
+                    const isDisabled = isSoldOut || !salesWindow.isAvailable || !pricingResult.valid;
+                    const stockLabel = !pricingResult.valid
+                      ? '人数帯未設定'
+                      : !salesWindow.isAvailable
+                        ? '予約受付期間外'
+                        : isSoldOut
+                          ? '満室 ×'
+                          : isLowStock
+                            ? `残りわずか △ ${availableSites}`
+                            : `空きあり ○ ${availableSites}`;
 
                     return (
                       <button
@@ -291,13 +234,11 @@ export default function PlansPage() {
                               )}
                               <span
                                 className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-                                  canUseWaitlist
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : isDisabled
-                                      ? 'bg-gray-200 text-gray-600'
-                                      : isLowStock
-                                        ? 'bg-amber-100 text-amber-800'
-                                        : 'bg-emerald-100 text-emerald-700'
+                                  isDisabled
+                                    ? 'bg-gray-200 text-gray-600'
+                                    : isLowStock
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-emerald-100 text-emerald-700'
                                 }`}
                               >
                                 {stockLabel}
@@ -307,21 +248,24 @@ export default function PlansPage() {
                             {item.features && <p className="mt-1 text-xs text-gray-400">{item.features}</p>}
 
                             <p className="mt-2 text-xs leading-5 text-gray-500">
-                              上限サイト数 {maxSiteCount} / 同時予約上限数 {maxConcurrentReservations} / 残り同時予約数{' '}
-                              {remainingConcurrentReservations}
+                              予約可能上限 {maxSiteCount} / 残り枠 {availableSites}
                             </p>
 
                             {(item.salesStartDate || item.salesEndDate) && (
                               <p className="mt-1 text-xs text-gray-500">
-                                予約可能期間: {item.salesStartDate ? formatDate(item.salesStartDate) : '開始日未設定'} -{' '}
+                                予約受付期間: {item.salesStartDate ? formatDate(item.salesStartDate) : '開始日未設定'} -{' '}
                                 {item.salesEndDate ? formatDate(item.salesEndDate) : '終了日未設定'}
                               </p>
                             )}
 
                             <p className="mt-3 text-sm font-semibold text-gray-700">
-                              ￥{pricingResult.amount.toLocaleString()}
+                              ¥{pricingResult.amount.toLocaleString()}
                               <span className="text-xs font-normal text-gray-400">{getPricingHint(item.pricingMode)}</span>
                             </p>
+
+                            {item.pricingMode === 'guest_band' && pricingResult.usedFallback && (
+                              <p className="mt-1 text-xs text-amber-700">人数帯未設定のため通常料金を表示しています。</p>
+                            )}
 
                             {!salesWindow.isAvailable && salesWindow.reason && (
                               <p className="mt-1 text-xs text-rose-700">{salesWindow.reason}</p>
@@ -329,12 +273,6 @@ export default function PlansPage() {
 
                             {!pricingResult.valid && pricingResult.reason && (
                               <p className="mt-1 text-xs text-rose-700">{pricingResult.reason}</p>
-                            )}
-
-                            {canUseWaitlist && (
-                              <p className="mt-1 text-xs text-amber-700">
-                                {item.waitlistMessage || `現在${availability?.waitlistCount ?? 0}組のキャンセル待ちを受け付けています。`}
-                              </p>
                             )}
                           </div>
                         </div>
@@ -349,22 +287,20 @@ export default function PlansPage() {
 
         {selectedPlan && selectedAvailability && (
           <section className="mb-8 rounded-lg border border-gray-200 bg-white p-4">
-            <label className="mb-2 block text-sm font-semibold text-gray-700">予約するサイト数</label>
+            <label className="mb-2 block text-sm font-semibold text-gray-700">利用するサイト数</label>
             <select
               value={plan.requestedSiteCount}
               onChange={(event) => setPlan({ requestedSiteCount: Number(event.target.value) })}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             >
               {Array.from({ length: Math.max(maxSelectableSiteCount, 1) }, (_, index) => index + 1).map((count) => (
-                <option key={count} value={count} disabled={count > maxSelectableSiteCount && !plan.waitlistRequested}>
+                <option key={count} value={count} disabled={count > maxSelectableSiteCount}>
                   {count}サイト
                 </option>
               ))}
             </select>
             <p className="mt-2 text-xs text-gray-500">
-              {plan.waitlistRequested
-                ? `このプランは満枠のためキャンセル待ちで受付します。現在 ${selectedAvailability.waitlistCount} 組受付中です。`
-                : `空きサイト数 ${selectedAvailability.availableSites} / 上限サイト数 ${selectedAvailability.maxSiteCount} / 残り同時予約数 ${selectedAvailability.remainingConcurrentReservations}`}
+              残り枠 {selectedAvailability.availableSites} / 予約可能上限 {selectedAvailability.maxSiteCount}
             </p>
           </section>
         )}
@@ -372,11 +308,11 @@ export default function PlansPage() {
         <section className="mb-8">
           <button
             type="button"
-            disabled={!hasPlan || (!plan.waitlistRequested && maxSelectableSiteCount <= 0)}
+            disabled={!hasPlan || maxSelectableSiteCount <= 0}
             onClick={() => router.push('/booking/sites')}
             className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
           >
-            サイト選択へ
+            サイト指定へ
           </button>
           {!hasPlan && <p className="mt-2 text-center text-xs text-gray-400">プランを選択してください</p>}
         </section>

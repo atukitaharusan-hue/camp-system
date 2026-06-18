@@ -15,6 +15,7 @@ export interface ReservationValidationInput {
   requestedSiteCount?: number;
   selectedSiteNumbers?: string[];
   excludeReservationId?: string;
+  allowCapacityOverride?: boolean;
 }
 
 export interface ValidationError {
@@ -227,6 +228,7 @@ export async function validateReservation(input: ReservationValidationInput): Pr
       selectedSiteNumbers: input.selectedSiteNumbers ?? (normalizedSiteNumber ? [normalizedSiteNumber] : []),
       excludeReservationId: input.excludeReservationId,
       skipSalesWindow: input.source === 'admin' || input.source === 'admin_update' || input.source === 'import',
+      allowCapacityOverride: input.allowCapacityOverride === true,
     });
 
     if (!inventory.valid) {

@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { fetchOptions, fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { fetchReservations } from '@/lib/admin/fetchReservations';
 import { recalculateReservationsPricing } from '@/lib/admin/recalculateReservationPricing';
-import { cancelReservation, promoteWaitlistReservation } from '@/lib/admin/updateReservation';
+import { cancelReservation, promoteWaitlistReservation, updateReservationDetail } from '@/lib/admin/updateReservation';
 import { coerceReservationPricingBreakdown } from '@/lib/pricing';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
 import { getWaitlistStatusLabel } from '@/lib/waitlist';
@@ -14,10 +14,13 @@ import { generateReceptionCode, getPaymentMethodLabel, getPaymentStatusLabel } f
 import type { Database, Json } from '@/types/database';
 import type { AdminPlan } from '@/types/admin';
 import type { OptionItem } from '@/types/options';
+import type { ReservationPricingBreakdown } from '@/types/pricing';
 import type { SiteDetail } from '@/types/site';
+import { ReservationDetailEditorModal } from '@/components/admin/ReservationDetailEditorModal';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
+type MyPageLinkStatus = 'linked' | 'support' | 'unlinked';
 
 const STATUS_OPTIONS: Array<{ value: ReservationStatus | 'all'; label: string }> = [
   { value: 'all', label: 'すべて' },
@@ -205,6 +208,25 @@ function stripSystemLines(value: string | null) {
     .join('\n');
 }
 
+function enumerateStayDates(checkInDate: string, checkOutDate: string) {
+  const dates: string[] = [];
+  if (!checkInDate || !checkOutDate || checkOutDate <= checkInDate) return dates;
+
+  const current = new Date(`${checkInDate}T00:00:00`);
+  const end = new Date(`${checkOutDate}T00:00:00`);
+  while (current < end) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+function uniqueOptions(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0))).sort(
+    (a, b) => a.localeCompare(b, 'ja'),
+  );
+}
+
 export default function AdminReservationsPage() {
   const [reservations, setReservations] = useState<GuestReservationRow[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
@@ -217,8 +239,22 @@ export default function AdminReservationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'all'>('all');
-  const [keyword, setKeyword] = useState('');
+  const [nameKeyword, setNameKeyword] = useState('');
+  const [phoneFilter, setPhoneFilter] = useState('all');
+  const [emailFilter, setEmailFilter] = useState('all');
+  const [addressFilter, setAddressFilter] = useState('all');
+  const [stayDateFilter, setStayDateFilter] = useState('all');
+  const [checkInDateFilter, setCheckInDateFilter] = useState('all');
+  const [checkOutDateFilter, setCheckOutDateFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [siteNumberFilter, setSiteNumberFilter] = useState('all');
+  const [guestsFilter, setGuestsFilter] = useState('all');
+  const [routeFilter, setRouteFilter] = useState('all');
+  const [mypageLinkFilter, setMypageLinkFilter] = useState<MyPageLinkStatus | 'all'>('all');
   const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
+  const [mypageStatuses, setMypageStatuses] = useState<Record<string, { linkStatus: MyPageLinkStatus; lineUserId: string | null }>>({});
+  const [editingReservation, setEditingReservation] = useState<GuestReservationRow | null>(null);
+  const [editingSaving, setEditingSaving] = useState(false);
 
   const loadReservations = useCallback(async () => {
     setLoading(true);
@@ -241,28 +277,139 @@ export default function AdminReservationsPage() {
     fetchOptions().then(setOptions);
   }, [loadReservations]);
 
+  useEffect(() => {
+    if (reservations.length === 0) {
+      setMypageStatuses({});
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const response = await fetch('/api/admin/mypage-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'status',
+          reservationIds: reservations.map((reservation) => reservation.id),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            statuses?: Record<string, { linkStatus?: MyPageLinkStatus; lineUserId?: string | null }>;
+          }
+        | null;
+
+      if (!cancelled) {
+        setMypageStatuses(
+          Object.fromEntries(
+            Object.entries(payload?.statuses ?? {}).map(([reservationId, status]) => [
+              reservationId,
+              {
+                linkStatus: status.linkStatus ?? 'unlinked',
+                lineUserId: status.lineUserId ?? null,
+              },
+            ]),
+          ),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reservations]);
+
+  const getPlanName = useCallback(
+    (planId: string | null) => plans.find((plan) => plan.id === planId)?.name ?? '未設定',
+    [plans],
+  );
+
+  const reservationFilterRows = useMemo(
+    () =>
+      reservations.map((reservation) => {
+        const memoFields = parseMemoFields(reservation.special_requests);
+        const selectedSiteNumbers = getSelectedSiteNumbers(reservation.selected_site_numbers);
+        const fallbackSiteNumbers = selectedSiteNumbers.length > 0 ? selectedSiteNumbers : reservation.site_number ? [reservation.site_number] : [];
+        const planNames =
+          memoFields.planItems && memoFields.planItems.length > 0
+            ? memoFields.planItems.map((item) => getPlanName(item.planId))
+            : reservation.plan_id
+              ? [getPlanName(reservation.plan_id)]
+              : [];
+
+        return {
+          reservation,
+          address: buildAddress(memoFields),
+          route: memoFields.referralSource ?? '',
+          planNames,
+          siteNumbers: fallbackSiteNumbers,
+          stayDates: enumerateStayDates(reservation.check_in_date, reservation.check_out_date),
+          guests: String(reservation.guests ?? 0),
+        };
+      }),
+    [reservations, getPlanName],
+  );
+
+  const filterOptions = useMemo(
+    () => ({
+      names: uniqueOptions(reservationFilterRows.map(({ reservation }) => reservation.user_name)),
+      phones: uniqueOptions(reservationFilterRows.map(({ reservation }) => reservation.user_phone)),
+      emails: uniqueOptions(reservationFilterRows.map(({ reservation }) => reservation.user_email)),
+      addresses: uniqueOptions(reservationFilterRows.map(({ address }) => address)),
+      stayDates: uniqueOptions(reservationFilterRows.flatMap(({ stayDates }) => stayDates)),
+      checkInDates: uniqueOptions(reservationFilterRows.map(({ reservation }) => reservation.check_in_date)),
+      checkOutDates: uniqueOptions(reservationFilterRows.map(({ reservation }) => reservation.check_out_date)),
+      plans: uniqueOptions(reservationFilterRows.flatMap(({ planNames }) => planNames)),
+      siteNumbers: uniqueOptions(reservationFilterRows.flatMap(({ siteNumbers }) => siteNumbers)),
+      guests: uniqueOptions(reservationFilterRows.map(({ guests }) => guests)),
+      routes: uniqueOptions(reservationFilterRows.map(({ route }) => route)),
+    }),
+    [reservationFilterRows],
+  );
+
   const filteredReservations = useMemo(
     () =>
-      reservations.filter((reservation) => {
-        if (statusFilter !== 'all' && reservation.status !== statusFilter) return false;
-        if (!keyword) return true;
-
-        const lowerKeyword = keyword.toLowerCase();
-        const searchable = [
-          reservation.user_name,
-          reservation.user_email,
-          reservation.user_phone,
-          reservation.site_number,
-          reservation.site_name,
-          reservation.plan_id,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-
-        return searchable.includes(lowerKeyword);
-      }),
-    [keyword, reservations, statusFilter],
+      reservationFilterRows
+        .filter(({ reservation, address, route, planNames, siteNumbers, stayDates, guests }) => {
+          const mypageStatus = mypageStatuses[reservation.id];
+          if (statusFilter !== 'all' && reservation.status !== statusFilter) return false;
+          if (
+            nameKeyword.trim().length > 0 &&
+            !reservation.user_name.toLowerCase().includes(nameKeyword.trim().toLowerCase())
+          ) {
+            return false;
+          }
+          if (phoneFilter !== 'all' && (reservation.user_phone ?? '') !== phoneFilter) return false;
+          if (emailFilter !== 'all' && (reservation.user_email ?? '') !== emailFilter) return false;
+          if (addressFilter !== 'all' && address !== addressFilter) return false;
+          if (stayDateFilter !== 'all' && !stayDates.includes(stayDateFilter)) return false;
+          if (checkInDateFilter !== 'all' && reservation.check_in_date !== checkInDateFilter) return false;
+          if (checkOutDateFilter !== 'all' && reservation.check_out_date !== checkOutDateFilter) return false;
+          if (planFilter !== 'all' && !planNames.includes(planFilter)) return false;
+          if (siteNumberFilter !== 'all' && !siteNumbers.includes(siteNumberFilter)) return false;
+          if (guestsFilter !== 'all' && guests !== guestsFilter) return false;
+          if (routeFilter !== 'all' && route !== routeFilter) return false;
+          if (mypageLinkFilter !== 'all' && (mypageStatus?.linkStatus ?? 'unlinked') !== mypageLinkFilter) return false;
+          return true;
+        })
+        .map(({ reservation }) => reservation),
+    [
+      addressFilter,
+      checkInDateFilter,
+      checkOutDateFilter,
+      emailFilter,
+      guestsFilter,
+      nameKeyword,
+      phoneFilter,
+      planFilter,
+      mypageLinkFilter,
+      mypageStatuses,
+      reservationFilterRows,
+      routeFilter,
+      siteNumberFilter,
+      statusFilter,
+      stayDateFilter,
+    ],
   );
 
   const filteredReservationIds = useMemo(
@@ -292,14 +439,70 @@ export default function AdminReservationsPage() {
     });
   }, [allFilteredSelected, filteredReservationIds]);
 
-  const getPlanName = useCallback(
-    (planId: string | null) => plans.find((plan) => plan.id === planId)?.name ?? '未設定',
-    [plans],
-  );
-
   const optionNameMap = useMemo(
     () => new Map(options.map((option) => [option.id, option.name])),
     [options],
+  );
+
+  const editingPlan = useMemo(() => {
+    if (!editingReservation) return null;
+    const memoFields = parseMemoFields(editingReservation.special_requests);
+    const planId = editingReservation.plan_id ?? memoFields.planItems?.[0]?.planId ?? null;
+    return plans.find((plan) => plan.id === planId) ?? null;
+  }, [editingReservation, plans]);
+
+  const editingOptions = useMemo(() => {
+    if (!editingPlan) return options;
+    return options.filter((option) => editingPlan.applicableOptionIds.includes(option.id));
+  }, [editingPlan, options]);
+
+  const handleSaveReservationDetail = useCallback(
+    async (payload: {
+      status: ReservationStatus;
+      optionsJson: Database['public']['Tables']['guest_reservations']['Row']['options_json'];
+      totalAmount: number;
+      additionalItemsCount: number;
+      pricingBreakdown: ReservationPricingBreakdown;
+      guests: number;
+      adults: number;
+      children: number;
+      infants: number;
+    }) => {
+      if (!editingReservation) {
+        return { success: false, error: '予約が見つかりません。' };
+      }
+
+      setEditingSaving(true);
+
+      const result = await updateReservationDetail(
+        editingReservation.id,
+        {
+          status: payload.status,
+          optionsJson: payload.optionsJson,
+          totalAmount: payload.totalAmount,
+          pricingBreakdown: payload.pricingBreakdown,
+          guests: payload.guests,
+          adults: payload.adults,
+          children: payload.children,
+          infants: payload.infants,
+        },
+        'admin',
+      );
+
+      setEditingSaving(false);
+
+      if (!result.success) {
+        const message =
+          payload.additionalItemsCount > 0 ? '追加項目の保存に失敗しました。' : '予約情報を保存できませんでした。';
+        return { success: false, error: result.error ?? message };
+      }
+
+      setActionMessage('保存しました');
+      await loadReservations();
+      setEditingReservation(null);
+      return { success: true };
+    },
+    [editingReservation, loadReservations],
   );
 
   const siteNameMap = useMemo(
@@ -581,24 +784,107 @@ export default function AdminReservationsPage() {
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <div className="grid gap-4 md:grid-cols-[220px,1fr]">
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as ReservationStatus | 'all')}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <input
+            type="text"
+            value={nameKeyword}
+            onChange={(event) => setNameKeyword(event.target.value)}
+            placeholder="名前を検索"
             className="rounded border border-gray-300 px-3 py-2 text-sm"
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+          />
+          <select value={phoneFilter} onChange={(event) => setPhoneFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">電話番号: すべて</option>
+            {filterOptions.phones.map((value) => (
+              <option key={value} value={value}>
+                {value}
               </option>
             ))}
           </select>
-          <input
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder="予約者名 / メール / 電話番号 / サイト番号で検索"
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
-          />
+          <select value={emailFilter} onChange={(event) => setEmailFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">メール: すべて</option>
+            {filterOptions.emails.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={addressFilter} onChange={(event) => setAddressFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">住所: すべて</option>
+            {filterOptions.addresses.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={stayDateFilter} onChange={(event) => setStayDateFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">宿泊日: すべて</option>
+            {filterOptions.stayDates.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={checkInDateFilter} onChange={(event) => setCheckInDateFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">チェックイン日: すべて</option>
+            {filterOptions.checkInDates.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={checkOutDateFilter} onChange={(event) => setCheckOutDateFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">チェックアウト日: すべて</option>
+            {filterOptions.checkOutDates.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={planFilter} onChange={(event) => setPlanFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">プラン: すべて</option>
+            {filterOptions.plans.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={siteNumberFilter} onChange={(event) => setSiteNumberFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">サイト番号: すべて</option>
+            {filterOptions.siteNumbers.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ReservationStatus | 'all')} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {`予約ステータス: ${option.label}`}
+              </option>
+            ))}
+          </select>
+          <select value={guestsFilter} onChange={(event) => setGuestsFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">人数: すべて</option>
+            {filterOptions.guests.map((value) => (
+              <option key={value} value={value}>
+                {value}名
+              </option>
+            ))}
+          </select>
+          <select value={routeFilter} onChange={(event) => setRouteFilter(event.target.value)} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">予約経路: すべて</option>
+            {filterOptions.routes.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+          <select value={mypageLinkFilter} onChange={(event) => setMypageLinkFilter(event.target.value as MyPageLinkStatus | 'all')} className="rounded border border-gray-300 px-3 py-2 text-sm">
+            <option value="all">マイページ連携: すべて</option>
+            <option value="linked">LINE連携済み</option>
+            <option value="support">補助のみ</option>
+            <option value="unlinked">未連携</option>
+          </select>
         </div>
       </div>
 
@@ -683,7 +969,13 @@ export default function AdminReservationsPage() {
                 });
                 const reservationOptions = parseReservationOptions(reservation.options_json);
                 const optionsTotal = getOptionsTotal(reservation, reservationOptions);
-
+                const mypageStatus = mypageStatuses[reservation.id];
+                const mypageLinkLabel =
+                  mypageStatus?.linkStatus === 'linked'
+                    ? 'LINE連携済み'
+                    : mypageStatus?.linkStatus === 'support'
+                      ? '補助のみ'
+                      : '未連携';
                 return (
                   <tr key={reservation.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
@@ -699,9 +991,24 @@ export default function AdminReservationsPage() {
                       <Link href={`/admin/reservations/${reservation.id}`}>{generateReceptionCode(reservation.id)}</Link>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{reservation.user_name}</div>
-                      <div className="text-xs text-gray-500">{reservation.user_email || '-'}</div>
-                      <div className="text-xs text-gray-500">{reservation.user_phone || '-'}</div>
+                      <Link href={`/admin/reservations/${reservation.id}`} className="block rounded-lg px-1 py-1 hover:bg-gray-50">
+                        <div className="font-medium text-gray-900 underline decoration-dotted underline-offset-2">{reservation.user_name}</div>
+                        <div className="text-xs text-gray-500">{reservation.user_email || '-'}</div>
+                        <div className="text-xs text-gray-500">{reservation.user_phone || '-'}</div>
+                      </Link>
+                      <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                        <span
+                          className={`rounded-full px-2 py-0.5 ${
+                            mypageStatus?.linkStatus === 'linked'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : mypageStatus?.linkStatus === 'support'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {mypageLinkLabel}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs leading-5 text-gray-600">
                       <div>
@@ -764,6 +1071,15 @@ export default function AdminReservationsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingReservation(reservation);
+                          }}
+                          className="rounded border border-emerald-200 px-3 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                        >
+                          簡易編集
+                        </button>
                         <Link
                           href={`/admin/reservations/${reservation.id}/edit`}
                           className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
@@ -779,6 +1095,12 @@ export default function AdminReservationsPage() {
                             繰り上げ
                           </button>
                         )}
+                        <Link
+                          href={`/admin/reservations/${reservation.id}`}
+                          className="rounded border border-blue-200 px-3 py-1 text-xs text-blue-700 hover:bg-blue-50"
+                        >
+                          詳細
+                        </Link>
                         <button
                           type="button"
                           onClick={() => handleDelete(reservation.id)}
@@ -795,6 +1117,33 @@ export default function AdminReservationsPage() {
           </table>
         </div>
       )}
+
+      {editingReservation ? (
+        <ReservationDetailEditorModal
+          key={editingReservation.id}
+          reservation={editingReservation}
+          options={editingOptions}
+          planName={editingPlan?.name ?? getPlanName(editingReservation.plan_id)}
+          plan={editingPlan}
+          primarySiteId={
+            siteDetails.find(
+              (site) =>
+                site.siteNumber === getSelectedSiteNumbers(editingReservation)[0] ||
+                site.siteNumber === editingReservation.site_number,
+            )?.id ?? null
+          }
+          siteLabel={getSiteSelectionLabel({
+            siteNumber: editingReservation.site_number,
+            siteName: editingReservation.site_name,
+            selectedSiteNumbers: getSelectedSiteNumbers(editingReservation.selected_site_numbers),
+          })}
+          onClose={() => {
+            if (editingSaving) return;
+            setEditingReservation(null);
+          }}
+          onSave={handleSaveReservationDetail}
+        />
+      ) : null}
     </div>
   );
 }

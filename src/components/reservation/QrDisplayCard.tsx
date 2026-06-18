@@ -6,18 +6,24 @@ import { buildReservationQrValue } from '@/lib/reservationQr';
 import { generateReceptionCode } from '@/types/reservation';
 
 interface QrDisplayCardProps {
-  qrToken: string;
-  reservationId: string;
+  qrToken?: string;
+  reservationId?: string;
+  rawValue?: string;
+  codeLabel?: string;
+  title?: string;
 }
 
 export default function QrDisplayCard({
   qrToken,
   reservationId,
+  rawValue,
+  codeLabel,
+  title,
 }: QrDisplayCardProps) {
-  const receptionCode = generateReceptionCode(reservationId);
+  const receptionCode = codeLabel ?? (reservationId ? generateReceptionCode(reservationId) : 'QR');
   const qrValue = useMemo(
-    () => buildReservationQrValue(reservationId, qrToken),
-    [reservationId, qrToken],
+    () => rawValue ?? (reservationId && qrToken ? buildReservationQrValue(reservationId, qrToken) : ''),
+    [rawValue, reservationId, qrToken],
   );
 
   return (
@@ -27,7 +33,7 @@ export default function QrDisplayCard({
       </div>
 
       <div className="mt-4 text-center">
-        <p className="text-xs text-gray-500">受付コード</p>
+        <p className="text-xs text-gray-500">{title ?? '受付コード'}</p>
         <p className="mt-0.5 font-mono text-lg font-bold tracking-widest text-gray-800">
           {receptionCode}
         </p>

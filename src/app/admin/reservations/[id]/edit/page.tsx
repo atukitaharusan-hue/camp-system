@@ -6,16 +6,24 @@ import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { fetchReservationByIdAdmin } from '@/lib/admin/fetchReservations';
 import { updateReservation } from '@/lib/admin/updateReservation';
-import { fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
+import { fetchOptions, fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { getSiteAvailabilityForStay } from '@/lib/bookingAvailability';
+import {
+  ReservationOptionEditor,
+  buildReservationOptionsJson,
+  parseReservationOptions,
+  type ReservationOptionDraft,
+} from '@/components/admin/ReservationOptionEditor';
 import { generateReceptionCode } from '@/types/reservation';
 import type { Database } from '@/types/database';
 import type { AdminPlan } from '@/types/admin';
+import type { OptionItem } from '@/types/options';
 import type { SiteDetail } from '@/types/site';
 
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
+type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
 type PlanReservationBlock = {
   id: string;
@@ -37,6 +45,14 @@ const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
   { value: 'paid', label: '入金済み' },
   { value: 'refunded', label: '返金済み' },
   { value: 'failed', label: '決済失敗' },
+];
+
+const RESERVATION_STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
+  { value: 'pending', label: '仮予約' },
+  { value: 'confirmed', label: '予約確定' },
+  { value: 'checked_in', label: 'チェックイン済み' },
+  { value: 'completed', label: '完了' },
+  { value: 'cancelled', label: 'キャンセル' },
 ];
 
 const SYSTEM_MEMO_PREFIXES = [
@@ -153,8 +169,10 @@ export default function EditReservationPage() {
   const [reservation, setReservation] = useState<GuestReservationRow | null>(null);
   const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
   const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
+  const [allOptions, setAllOptions] = useState<OptionItem[]>([]);
   const [planBlocks, setPlanBlocks] = useState<PlanReservationBlock[]>([createPlanBlock()]);
   const [siteAvailability, setSiteAvailability] = useState<SiteAvailabilityMap>({});
+  const [reservationOptions, setReservationOptions] = useState<ReservationOptionDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +188,7 @@ export default function EditReservationPage() {
   const [specialRequests, setSpecialRequests] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
+  const [reservationStatus, setReservationStatus] = useState<ReservationStatus>('confirmed');
   const [totalAmount, setTotalAmount] = useState(0);
 
   useEffect(() => {
@@ -177,10 +196,11 @@ export default function EditReservationPage() {
 
     async function load() {
       setLoading(true);
-      const [reservationResult, plans, sites] = await Promise.all([
+      const [reservationResult, plans, sites, options] = await Promise.all([
         fetchReservationByIdAdmin(id),
         fetchPlans(),
         fetchSiteDetails(),
+        fetchOptions(),
       ]);
 
       if (!active) return;
@@ -195,7 +215,9 @@ export default function EditReservationPage() {
       setReservation(row);
       setAllPlans(plans);
       setAllSiteDetails(sites);
+      setAllOptions(options);
       setPlanBlocks(buildInitialPlanBlocks(row));
+      setReservationOptions(parseReservationOptions(row.options_json));
       setCheckInDate(row.check_in_date);
       setCheckOutDate(row.check_out_date);
       setAdults(row.adults ?? row.guests ?? 1);
@@ -206,6 +228,7 @@ export default function EditReservationPage() {
       setSpecialRequests(stripSystemMemo(row.special_requests));
       setPaymentMethod(row.payment_method ?? 'cash');
       setPaymentStatus(row.payment_status ?? 'pending');
+      setReservationStatus((row.status ?? 'confirmed') as ReservationStatus);
       setTotalAmount(Number(row.total_amount ?? 0));
       setLoading(false);
     }
@@ -217,10 +240,7 @@ export default function EditReservationPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!checkInDate || !checkOutDate) {
-      setSiteAvailability({});
-      return;
-    }
+    if (!checkInDate || !checkOutDate) return;
 
     let active = true;
     Promise.all(
@@ -243,6 +263,8 @@ export default function EditReservationPage() {
     };
   }, [checkInDate, checkOutDate, planBlocks]);
 
+  const effectiveSiteAvailability = checkInDate && checkOutDate ? siteAvailability : {};
+
   const totalGuests = adults + children + infants;
   const checkOutMin = checkInDate ? addDays(checkInDate, 1) : '';
   const nights = useMemo(() => {
@@ -258,6 +280,20 @@ export default function EditReservationPage() {
     },
     [allPlans, allSiteDetails],
   );
+
+  const editableOptions = useMemo(() => {
+    const selectedPlanIds = new Set(planBlocks.map((block) => block.planId).filter(Boolean));
+    if (selectedPlanIds.size === 0) return allOptions;
+
+    const applicableOptionIds = new Set<string>();
+    allPlans
+      .filter((plan) => selectedPlanIds.has(plan.id))
+      .forEach((plan) => {
+        plan.applicableOptionIds.forEach((optionId) => applicableOptionIds.add(optionId));
+      });
+
+    return allOptions.filter((option) => applicableOptionIds.has(option.id));
+  }, [allOptions, allPlans, planBlocks]);
 
   const normalizePlanItems = useCallback(
     (blocks = planBlocks) =>
@@ -317,7 +353,9 @@ export default function EditReservationPage() {
         specialRequests,
         paymentMethod,
         paymentStatus,
+        status: reservationStatus,
         totalAmount,
+        optionsJson: buildReservationOptionsJson(reservationOptions) as Database['public']['Tables']['guest_reservations']['Row']['options_json'],
         planId: planItems[0]?.planId,
         requestedSiteCount: planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1,
         selectedSiteNumbers,
@@ -348,7 +386,9 @@ export default function EditReservationPage() {
     specialRequests,
     paymentMethod,
     paymentStatus,
+    reservationStatus,
     totalAmount,
+    reservationOptions,
     normalizePlanItems,
     router,
   ]);
@@ -467,7 +507,7 @@ export default function EditReservationPage() {
             {planBlocks.map((block, blockIndex) => {
               const selectedPlan = allPlans.find((plan) => plan.id === block.planId);
               const sitesForPlan = getSitesForPlan(block.planId);
-              const availabilityForBlock = siteAvailability[block.id] ?? {};
+              const availabilityForBlock = effectiveSiteAvailability[block.id] ?? {};
               const maxSiteCount = Math.max(1, selectedPlan?.maxConcurrentReservations ?? block.siteCount ?? 10);
 
               return (
@@ -583,7 +623,19 @@ export default function EditReservationPage() {
             <Field label="合計金額（税込）" required>
               <input type="number" min={0} value={totalAmount} onChange={(event) => setTotalAmount(parseInt(event.target.value, 10) || 0)} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </Field>
-            <div />
+            <Field label="予約ステータス" required>
+              <select
+                value={reservationStatus}
+                onChange={(event) => setReservationStatus(event.target.value as ReservationStatus)}
+                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                {RESERVATION_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="支払い方法" required>
               <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
                 {PAYMENT_METHOD_OPTIONS.map((option) => (
@@ -604,6 +656,8 @@ export default function EditReservationPage() {
             </Field>
           </div>
         </section>
+
+        <ReservationOptionEditor options={editableOptions} items={reservationOptions} onChange={setReservationOptions} />
 
         <section className="rounded border border-gray-200 bg-white p-5">
           <h2 className="mb-4 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">備考</h2>

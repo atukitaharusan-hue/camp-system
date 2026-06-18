@@ -6,9 +6,15 @@ import type { Database } from '@/types/database';
 const ALLOWED_SETTING_KEYS = new Set([
   'admin_account',
   'calendar_display_settings',
+  'easy_mode_categories',
+  'easy_mode_footer_items',
+  'easy_mode_inventory_overrides',
   'policy_settings',
   'pricing_settings',
   'qr_screen_settings',
+  'accounting_subjects',
+  'sales_report_categories',
+  'sales_report_output_settings',
   'site_map_settings',
 ]);
 

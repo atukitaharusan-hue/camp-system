@@ -47,7 +47,11 @@ function normalizePositiveCount(value: unknown) {
 }
 
 function applyStaySiteMultiplier(amount: number, context: PlanPricingContext) {
-  return normalizeLineItemAmount(amount) * normalizePositiveCount(context.nights) * normalizePositiveCount(context.requestedSiteCount);
+  return (
+    normalizeLineItemAmount(amount) *
+    normalizePositiveCount(context.nights) *
+    normalizePositiveCount(context.requestedSiteCount)
+  );
 }
 
 function normalizeChargeUnit(value: unknown): MandatoryFeeChargeUnit {
@@ -89,12 +93,7 @@ export function normalizePricingSettings(input: Partial<PricingSettings> | null 
   };
 }
 
-function resolveQuantity(
-  chargeUnit: MandatoryFeeChargeUnit,
-  adults: number,
-  children: number,
-  infants: number,
-) {
+function resolveQuantity(chargeUnit: MandatoryFeeChargeUnit, adults: number, children: number, infants: number) {
   if (chargeUnit === 'adult') return adults;
   if (chargeUnit === 'child') return children;
   if (chargeUnit === 'infant') return infants;
@@ -107,6 +106,8 @@ function createLineItem(
   chargeUnit: MandatoryFeeChargeUnit,
   quantity: number,
   unitPrice: number,
+  accountingSubjectId?: string | null,
+  accountingSubjectName?: string | null,
 ): PricingLineItem {
   return {
     id,
@@ -115,7 +116,27 @@ function createLineItem(
     quantity,
     unitPrice,
     amount: quantity * unitPrice,
+    accountingSubjectId: accountingSubjectId ?? null,
+    accountingSubjectName: accountingSubjectName ?? null,
   };
+}
+
+function coerceLineItem(
+  line: unknown,
+  fallbackId: string,
+  fallbackLabel: string,
+): PricingLineItem | null {
+  if (!line || typeof line !== 'object') return null;
+  const candidate = line as Partial<PricingLineItem>;
+  return createLineItem(
+    typeof candidate.id === 'string' && candidate.id ? candidate.id : fallbackId,
+    typeof candidate.label === 'string' ? candidate.label : fallbackLabel,
+    normalizeChargeUnit(candidate.chargeUnit),
+    Math.max(0, Math.trunc(Number(candidate.quantity ?? 0))),
+    normalizeLineItemAmount(candidate.unitPrice),
+    typeof candidate.accountingSubjectId === 'string' ? candidate.accountingSubjectId : null,
+    typeof candidate.accountingSubjectName === 'string' ? candidate.accountingSubjectName : null,
+  );
 }
 
 function normalizeMonthValues(months: number[] | undefined) {
@@ -292,7 +313,13 @@ export function calculateReservationPricing(
 
   return {
     accommodationAmount,
+    accommodationLines: [],
+    accommodationSubjectId: null,
+    accommodationSubjectName: null,
     designationFeeAmount,
+    designationFeeLine: null,
+    designationFeeSubjectId: null,
+    designationFeeSubjectName: null,
     optionsAmount,
     mandatoryFees,
     lodgingTax: lodgingTax && lodgingTax.amount > 0 ? lodgingTax : null,
@@ -300,42 +327,38 @@ export function calculateReservationPricing(
   };
 }
 
-export function coerceReservationPricingBreakdown(
-  value: unknown,
-): ReservationPricingBreakdown | null {
+export function coerceReservationPricingBreakdown(value: unknown): ReservationPricingBreakdown | null {
   if (!value || typeof value !== 'object') return null;
 
   const input = value as Partial<ReservationPricingBreakdown>;
   const mandatoryFees = Array.isArray(input.mandatoryFees)
     ? input.mandatoryFees
-        .map((line, index) => {
-          if (!line || typeof line !== 'object') return null;
-          const candidate = line as Partial<PricingLineItem>;
-          return createLineItem(
-            typeof candidate.id === 'string' && candidate.id ? candidate.id : `mandatory-fee-${index + 1}`,
-            typeof candidate.label === 'string' ? candidate.label : '必須料金',
-            normalizeChargeUnit(candidate.chargeUnit),
-            Math.max(0, Math.trunc(Number(candidate.quantity ?? 0))),
-            normalizeLineItemAmount(candidate.unitPrice),
-          );
-        })
+        .map((line, index) => coerceLineItem(line, `mandatory-fee-${index + 1}`, '必須料金'))
         .filter((line): line is PricingLineItem => Boolean(line))
     : [];
 
-  const lodgingTax =
-    input.lodgingTax && typeof input.lodgingTax === 'object'
-      ? createLineItem(
-          typeof input.lodgingTax.id === 'string' ? input.lodgingTax.id : 'lodging-tax',
-          typeof input.lodgingTax.label === 'string' ? input.lodgingTax.label : '宿泊税',
-          normalizeChargeUnit(input.lodgingTax.chargeUnit),
-          Math.max(0, Math.trunc(Number(input.lodgingTax.quantity ?? 0))),
-          normalizeLineItemAmount(input.lodgingTax.unitPrice),
-        )
-      : null;
+  const accommodationLines = Array.isArray(input.accommodationLines)
+    ? input.accommodationLines
+        .map((line, index) => coerceLineItem(line, `accommodation-line-${index + 1}`, '宿泊料金'))
+        .filter((line): line is PricingLineItem => Boolean(line))
+    : [];
+
+  const designationFeeLine = coerceLineItem(input.designationFeeLine, 'designation-fee', '指定料金');
+  const lodgingTax = coerceLineItem(input.lodgingTax, 'lodging-tax', '宿泊税');
 
   return {
     accommodationAmount: normalizeLineItemAmount(input.accommodationAmount),
+    accommodationLines,
+    accommodationSubjectId:
+      typeof input.accommodationSubjectId === 'string' ? input.accommodationSubjectId : null,
+    accommodationSubjectName:
+      typeof input.accommodationSubjectName === 'string' ? input.accommodationSubjectName : null,
     designationFeeAmount: normalizeLineItemAmount(input.designationFeeAmount),
+    designationFeeLine: designationFeeLine && designationFeeLine.amount > 0 ? designationFeeLine : null,
+    designationFeeSubjectId:
+      typeof input.designationFeeSubjectId === 'string' ? input.designationFeeSubjectId : null,
+    designationFeeSubjectName:
+      typeof input.designationFeeSubjectName === 'string' ? input.designationFeeSubjectName : null,
     optionsAmount: normalizeLineItemAmount(input.optionsAmount),
     mandatoryFees,
     lodgingTax: lodgingTax && lodgingTax.amount > 0 ? lodgingTax : null,

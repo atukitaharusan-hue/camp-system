@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,7 +28,8 @@ export default function AdminLoginPage() {
         return;
       }
 
-      router.replace('/admin');
+      const next = searchParams.get('next');
+      router.replace(next && next.startsWith('/') ? next : '/admin');
     } catch {
       setError('通信エラーが発生しました');
     } finally {

@@ -68,6 +68,7 @@ export interface InventoryValidationInput {
   selectedSiteNumbers?: string[];
   excludeReservationId?: string;
   skipSalesWindow?: boolean;
+  allowCapacityOverride?: boolean;
 }
 
 export interface InventoryValidationResult {
@@ -526,6 +527,7 @@ export async function validateInventory(
 
   const selectedSiteNumbers = (input.selectedSiteNumbers ?? []).filter(Boolean);
   const requestedSiteCount = Math.max(1, input.requestedSiteCount);
+  const allowCapacityOverride = input.allowCapacityOverride === true;
   const relevantReservations = reservations.filter(
     (reservation) => reservation.id !== input.excludeReservationId,
   );
@@ -541,7 +543,7 @@ export async function validateInventory(
     errors.push(`1回の予約人数は ${plan.maxGuestsPerReservation} 名までです。`);
   }
 
-  if (requestedSiteCount > plan.maxConcurrentReservations) {
+  if (!allowCapacityOverride && requestedSiteCount > plan.maxConcurrentReservations) {
     errors.push(`同時予約上限数は ${plan.maxConcurrentReservations} サイトまでです。`);
   }
 
@@ -613,13 +615,13 @@ export async function validateInventory(
     maxConcurrentReservations = Math.max(maxConcurrentReservations, concurrentReservations);
   }
 
-  if (requestedSiteCount > minAvailableSites) {
+  if (!allowCapacityOverride && requestedSiteCount > minAvailableSites) {
     errors.push(
       `選択日程で予約できる残りサイト数は ${Math.max(minAvailableSites, 0)} です。`,
     );
   }
 
-  if (maxConcurrentReservations >= plan.maxConcurrentReservations) {
+  if (!allowCapacityOverride && maxConcurrentReservations >= plan.maxConcurrentReservations) {
     errors.push('このプランは同時予約上限に達しています。');
   }
 

@@ -1,18 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { fetchPlans, fetchSiteDetails } from '@/lib/admin/fetchData';
+import { fetchAccountingSubjects, fetchOptions, fetchPlans, fetchPricingSettings, fetchSiteDetails } from '@/lib/admin/fetchData';
 import { createAdminReservation, validateAdminReservation, type AdminReservationInput } from '@/lib/admin/createAdminReservation';
 import { getSiteAvailabilityForStay } from '@/lib/bookingAvailability';
+import { ReservationOptionEditor, type ReservationOptionDraft, buildReservationOptionsJson } from '@/components/admin/ReservationOptionEditor';
+import { calculateReservationPricing, resolvePlanAccommodationAmount } from '@/lib/pricing';
 import type { Database } from '@/types/database';
-import type { AdminPlan } from '@/types/admin';
+import type { AccountingSubjectSetting, AdminPlan } from '@/types/admin';
+import type { OptionItem } from '@/types/options';
+import type { PricingSettings } from '@/types/pricing';
 import type { SiteDetail } from '@/types/site';
 
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
+type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
 type PlanReservationBlock = {
   id: string;
@@ -39,6 +44,14 @@ type CustomerProfile = Pick<
   | 'lineId'
   | 'referralSource'
 >;
+
+const RESERVATION_STATUS_OPTIONS: { value: ReservationStatus; label: string }[] = [
+  { value: 'pending', label: '仮予約' },
+  { value: 'confirmed', label: '予約確定' },
+  { value: 'checked_in', label: 'チェックイン済み' },
+  { value: 'completed', label: '完了' },
+  { value: 'cancelled', label: 'キャンセル' },
+];
 
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
   { value: 'cash', label: '現地払い(現金のみ)' },
@@ -91,12 +104,18 @@ function Field({ label, children, required }: { label: string; children: ReactNo
 
 export default function AdminReservationNewPage() {
   const router = useRouter();
+  const availabilityPrefillApplied = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allPlans, setAllPlans] = useState<AdminPlan[]>([]);
   const [allSiteDetails, setAllSiteDetails] = useState<SiteDetail[]>([]);
+  const [allOptions, setAllOptions] = useState<OptionItem[]>([]);
+  const [accountingSubjects, setAccountingSubjects] = useState<AccountingSubjectSetting[]>([]);
+  const [pricingSettings, setPricingSettings] = useState<PricingSettings | null>(null);
   const [planBlocks, setPlanBlocks] = useState<PlanReservationBlock[]>([createPlanBlock()]);
   const [siteAvailability, setSiteAvailability] = useState<SiteAvailabilityMap>({});
+  const [reservationOptions, setReservationOptions] = useState<ReservationOptionDraft[]>([]);
+  const [allowCapacityOverride, setAllowCapacityOverride] = useState(false);
 
   const [form, setForm] = useState<AdminReservationInput>({
     userName: '',
@@ -122,6 +141,7 @@ export default function AdminReservationNewPage() {
     siteNumber: '',
     paymentMethod: 'cash',
     paymentStatus: 'pending',
+    status: 'confirmed',
     totalAmount: 0,
     specialRequests: '',
     requestedSiteCount: 1,
@@ -129,24 +149,88 @@ export default function AdminReservationNewPage() {
   });
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     try {
       const stored = localStorage.getItem(CUSTOMER_PROFILE_KEY);
       if (!stored) return;
       const profile = JSON.parse(stored) as Partial<CustomerProfile>;
-      setForm((prev) => ({ ...prev, ...profile }));
+      const timer = window.setTimeout(() => {
+        setForm((prev) => ({ ...prev, ...profile }));
+      }, 0);
+      return () => window.clearTimeout(timer);
     } catch {
       // ignore local parse failures
     }
   }, []);
 
   useEffect(() => {
-    fetchPlans().then(setAllPlans);
-    fetchSiteDetails().then(setAllSiteDetails);
+    void Promise.all([
+      fetchPlans(),
+      fetchSiteDetails(),
+      fetchOptions(),
+      fetchAccountingSubjects(),
+      fetchPricingSettings(),
+    ]).then(([plans, sites, options, subjects, settings]) => {
+      setAllPlans(plans);
+      setAllSiteDetails(sites);
+      setAllOptions(options);
+      setAccountingSubjects(subjects.filter((subject) => subject.isActive));
+      setPricingSettings(settings);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (availabilityPrefillApplied.current) return;
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('from') !== 'availability') return;
+
+    const planId = params.get('planId') ?? '';
+    const checkInDate = params.get('checkInDate') ?? '';
+    const checkOutDate = params.get('checkOutDate') ?? '';
+    const siteNumber = params.get('siteNumber') ?? '';
+    const siteMode = params.get('siteMode') ?? '';
+
+    if (!planId || !checkInDate || !checkOutDate) return;
+
+    availabilityPrefillApplied.current = true;
+
+    const timer = window.setTimeout(() => {
+      setForm((prev) => ({
+        ...prev,
+        checkInDate,
+        checkOutDate,
+        planId,
+        siteNumber: siteMode === 'unspecified' ? '' : siteNumber,
+        requestedSiteCount: 1,
+        planItems: [
+          {
+            planId,
+            siteCount: 1,
+            siteNumbers: siteMode === 'unspecified' ? [] : siteNumber ? [siteNumber] : [],
+          },
+        ],
+      }));
+
+      setPlanBlocks([
+        {
+          id: crypto.randomUUID(),
+          planId,
+          siteCount: 1,
+          siteNumbers: [siteMode === 'unspecified' ? '' : siteNumber],
+        },
+      ]);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (!form.checkInDate || !form.checkOutDate) {
-      setSiteAvailability({});
+      queueMicrotask(() => {
+        setSiteAvailability({});
+      });
       return;
     }
 
@@ -172,6 +256,25 @@ export default function AdminReservationNewPage() {
   }, [form.checkInDate, form.checkOutDate, planBlocks]);
 
   const availablePlans = useMemo(() => allPlans.filter((plan) => plan.isPublished), [allPlans]);
+  const editableOptions = useMemo(() => {
+    const selectedPlanIds = new Set(planBlocks.map((block) => block.planId).filter(Boolean));
+    if (selectedPlanIds.size === 0) return allOptions;
+    const applicableOptionIds = new Set(
+      allPlans.filter((plan) => selectedPlanIds.has(plan.id)).flatMap((plan) => plan.applicableOptionIds),
+    );
+    return allOptions.filter((option) => applicableOptionIds.has(option.id));
+  }, [allOptions, allPlans, planBlocks]);
+  const normalizedPlanItems = useMemo(
+    () =>
+      planBlocks
+        .filter((block) => block.planId)
+        .map((block) => ({
+          planId: block.planId,
+          siteCount: Math.max(1, block.siteCount),
+          siteNumbers: block.siteNumbers.filter(Boolean),
+        })),
+    [planBlocks],
+  );
   const totalGuests = form.adults + form.children + form.infants;
   const nights =
     form.checkInDate && form.checkOutDate && form.checkOutDate > form.checkInDate
@@ -179,20 +282,101 @@ export default function AdminReservationNewPage() {
       : 0;
   const checkOutMin = form.checkInDate ? addDays(form.checkInDate, 1) : '';
 
+  useEffect(() => {
+    if (!pricingSettings) return;
+    if (!form.checkInDate || !form.checkOutDate || nights <= 0) {
+      queueMicrotask(() => {
+        setForm((prev) => (prev.totalAmount === 0 ? prev : { ...prev, totalAmount: 0 }));
+      });
+      return;
+    }
+
+    if (normalizedPlanItems.length === 0) {
+      queueMicrotask(() => {
+        setForm((prev) => (prev.totalAmount === 0 ? prev : { ...prev, totalAmount: 0 }));
+      });
+      return;
+    }
+
+    const accommodationAmount = normalizedPlanItems.reduce((sum, item) => {
+      const plan = allPlans.find((candidate) => candidate.id === item.planId);
+      if (!plan) return sum;
+
+      const result = resolvePlanAccommodationAmount(
+        {
+          pricingMode: plan.pricingMode,
+          basePrice: plan.basePrice,
+          adultPrice: plan.adultPrice,
+          childPrice: plan.childPrice,
+          infantPrice: plan.infantPrice,
+          guestBandRules: plan.guestBandRules,
+        },
+        {
+          adults: form.adults,
+          children: form.children,
+          infants: form.infants,
+        },
+        {
+          checkInDate: form.checkInDate,
+          nights,
+          requestedSiteCount: item.siteCount,
+        },
+      );
+
+      return sum + (result.valid ? result.amount : 0);
+    }, 0);
+
+    const designationFeeAmount = normalizedPlanItems.reduce((sum, item) => {
+      const selectedSiteNumbers = item.siteNumbers.filter(Boolean);
+      if (selectedSiteNumbers.length === 0) return sum;
+
+      return (
+        sum +
+        selectedSiteNumbers.reduce((siteSum, siteNumber) => {
+          const site = allSiteDetails.find((candidate) => candidate.siteNumber === siteNumber);
+          return siteSum + (site?.designationFee ?? 0);
+        }, 0)
+      );
+    }, 0);
+
+    const optionsAmount = reservationOptions.reduce((sum, item) => sum + Math.max(0, item.subtotal), 0);
+    const primaryPlan = allPlans.find((plan) => plan.id === normalizedPlanItems[0]?.planId);
+    const pricingBreakdown = calculateReservationPricing(pricingSettings, {
+      adults: form.adults,
+      children: form.children,
+      infants: form.infants,
+      accommodationAmount,
+      designationFeeAmount,
+      optionsAmount,
+      isLodgingTaxApplicable: primaryPlan?.isLodgingTaxApplicable ?? false,
+    });
+
+    queueMicrotask(() => {
+      setForm((prev) =>
+        prev.totalAmount === pricingBreakdown.totalAmount
+          ? prev
+          : { ...prev, totalAmount: pricingBreakdown.totalAmount },
+      );
+    });
+  }, [
+    allPlans,
+    allSiteDetails,
+    form.adults,
+    form.children,
+    form.checkInDate,
+    form.checkOutDate,
+    form.infants,
+    nights,
+    pricingSettings,
+    reservationOptions,
+    normalizedPlanItems,
+  ]);
+
   const getSitesForPlan = (planId: string) => {
     const selectedPlan = allPlans.find((plan) => plan.id === planId);
     if (!selectedPlan) return [];
     return allSiteDetails.filter((site) => selectedPlan.targetSiteIds.includes(site.id));
   };
-
-  const normalizePlanItems = (blocks = planBlocks) =>
-    blocks
-      .filter((block) => block.planId)
-      .map((block) => ({
-        planId: block.planId,
-        siteCount: Math.max(1, block.siteCount),
-        siteNumbers: block.siteNumbers.filter(Boolean),
-      }));
 
   const update = <K extends keyof AdminReservationInput>(key: K, value: AdminReservationInput[K]) => {
     setForm((prev) => {
@@ -225,22 +409,20 @@ export default function AdminReservationNewPage() {
     setPlanBlocks((prev) => (prev.length > 1 ? prev.filter((block) => block.id !== blockId) : prev));
   };
 
-  useEffect(() => {
-    setForm((prev) => (prev.guests === totalGuests ? prev : { ...prev, guests: totalGuests }));
-  }, [totalGuests]);
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    const planItems = normalizePlanItems();
+    const planItems = normalizedPlanItems;
     const selectedSiteNumbers = planItems.flatMap((item) => item.siteNumbers);
     const payload: AdminReservationInput = {
       ...form,
       guests: totalGuests,
       planId: planItems[0]?.planId ?? '',
       siteNumber: selectedSiteNumbers[0] ?? '',
+      optionsJson: buildReservationOptionsJson(reservationOptions) as AdminReservationInput['optionsJson'],
       requestedSiteCount: planItems.reduce((sum, item) => sum + item.siteCount, 0) || 1,
+      allowCapacityOverride,
       planItems,
     };
 
@@ -295,6 +477,29 @@ export default function AdminReservationNewPage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <section className="rounded border-2 border-amber-300 bg-amber-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-amber-950">手動予約の上限超過</h2>
+              <p className="mt-1 text-sm text-amber-900">
+                新規予約登録のときだけ、上限サイト数や同時予約上限を超えて登録できます。
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                この画面で作成する手動予約にのみ有効です。公開予約や既存の通常ロジックには影響しません。
+              </p>
+            </div>
+            <label className="flex items-center gap-3 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-medium text-amber-950">
+              <input
+                type="checkbox"
+                checked={allowCapacityOverride}
+                onChange={(event) => setAllowCapacityOverride(event.target.checked)}
+                className="h-5 w-5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+              />
+              <span>上限を超えて登録する</span>
+            </label>
+          </div>
+        </section>
+
         <section className="rounded border border-gray-200 bg-white p-5">
           <h2 className="mb-4 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">顧客情報</h2>
           <p className="mb-4 text-xs text-gray-500">
@@ -515,7 +720,19 @@ export default function AdminReservationNewPage() {
             <Field label="合計金額（税込）" required>
               <input type="number" min={0} value={form.totalAmount} onChange={(event) => update('totalAmount', parseInt(event.target.value, 10) || 0)} className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
             </Field>
-            <div />
+            <Field label="予約ステータス" required>
+              <select
+                value={form.status ?? 'confirmed'}
+                onChange={(event) => update('status', event.target.value as ReservationStatus)}
+                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                {RESERVATION_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="支払い方法" required>
               <select value={form.paymentMethod} onChange={(event) => update('paymentMethod', event.target.value as PaymentMethod)} className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
                 {PAYMENT_METHOD_OPTIONS.map((option) => (
@@ -536,6 +753,13 @@ export default function AdminReservationNewPage() {
             </Field>
           </div>
         </section>
+
+        <ReservationOptionEditor
+          options={editableOptions}
+          accountingSubjects={accountingSubjects}
+          items={reservationOptions}
+          onChange={setReservationOptions}
+        />
 
         <section className="rounded border border-gray-200 bg-white p-5">
           <h2 className="mb-4 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">備考</h2>

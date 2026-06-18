@@ -30,11 +30,19 @@ export interface PricingLineItem {
   quantity: number;
   unitPrice: number;
   amount: number;
+  accountingSubjectId?: string | null;
+  accountingSubjectName?: string | null;
 }
 
 export interface ReservationPricingBreakdown {
   accommodationAmount: number;
+  accommodationLines?: PricingLineItem[];
+  accommodationSubjectId?: string | null;
+  accommodationSubjectName?: string | null;
   designationFeeAmount: number;
+  designationFeeLine?: PricingLineItem | null;
+  designationFeeSubjectId?: string | null;
+  designationFeeSubjectName?: string | null;
   optionsAmount: number;
   mandatoryFees: PricingLineItem[];
   lodgingTax: PricingLineItem | null;

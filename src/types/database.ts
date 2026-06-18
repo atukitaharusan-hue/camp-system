@@ -313,6 +313,107 @@ export type Database = {
         }
         Relationships: []
       }
+      checkin_sessions: {
+        Row: {
+          adults: number
+          children: number
+          completed_at: string | null
+          confirmed_at: string | null
+          counter_token: string
+          created_at: string
+          customer_note: string | null
+          estimated_total_amount: number
+          expires_at: string | null
+          guests: number
+          id: string
+          infants: number
+          options_json: Json
+          requested_site_count: number
+          reservation_id: string
+          selected_site_numbers: Json
+          session_token: string
+          special_requests: string | null
+          status: string
+          updated_at: string
+          user_address: string | null
+          user_email: string | null
+          user_gender: string | null
+          user_identifier: string | null
+          user_name: string | null
+          user_occupation: string | null
+          user_phone: string | null
+          user_referral_source: string | null
+        }
+        Insert: {
+          adults?: number
+          children?: number
+          completed_at?: string | null
+          confirmed_at?: string | null
+          counter_token: string
+          created_at?: string
+          customer_note?: string | null
+          estimated_total_amount?: number
+          expires_at?: string | null
+          guests?: number
+          id?: string
+          infants?: number
+          options_json?: Json
+          requested_site_count?: number
+          reservation_id: string
+          selected_site_numbers?: Json
+          session_token: string
+          special_requests?: string | null
+          status?: string
+          updated_at?: string
+          user_address?: string | null
+          user_email?: string | null
+          user_gender?: string | null
+          user_identifier?: string | null
+          user_name?: string | null
+          user_occupation?: string | null
+          user_phone?: string | null
+          user_referral_source?: string | null
+        }
+        Update: {
+          adults?: number
+          children?: number
+          completed_at?: string | null
+          confirmed_at?: string | null
+          counter_token?: string
+          created_at?: string
+          customer_note?: string | null
+          estimated_total_amount?: number
+          expires_at?: string | null
+          guests?: number
+          id?: string
+          infants?: number
+          options_json?: Json
+          requested_site_count?: number
+          reservation_id?: string
+          selected_site_numbers?: Json
+          session_token?: string
+          special_requests?: string | null
+          status?: string
+          updated_at?: string
+          user_address?: string | null
+          user_email?: string | null
+          user_gender?: string | null
+          user_identifier?: string | null
+          user_name?: string | null
+          user_occupation?: string | null
+          user_phone?: string | null
+          user_referral_source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkin_sessions_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "guest_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
         guest_reservations: {
           Row: {
             adults: number
@@ -324,6 +425,7 @@ export type Database = {
           check_in_date: string
           check_out_date: string
           checked_in_at: string | null
+          checkin_flow_status: string | null
           children: number
           created_at: string
           guests: number
@@ -367,6 +469,7 @@ export type Database = {
           check_in_date: string
           check_out_date: string
           checked_in_at?: string | null
+          checkin_flow_status?: string | null
           children?: number
           created_at?: string
           guests?: number
@@ -410,6 +513,7 @@ export type Database = {
           check_in_date?: string
           check_out_date?: string
           checked_in_at?: string | null
+          checkin_flow_status?: string | null
           children?: number
           created_at?: string
           guests?: number
@@ -1144,6 +1248,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      staff_memos: {
+        Row: {
+          body: string | null
+          completed_at: string | null
+          created_at: string
+          due_at: string | null
+          from_name: string
+          id: string
+          response_comment: string | null
+          status: string
+          title: string
+          to_name: string
+          updated_at: string
+        }
+        Insert: {
+          body?: string | null
+          completed_at?: string | null
+          created_at?: string
+          due_at?: string | null
+          from_name: string
+          id?: string
+          response_comment?: string | null
+          status?: string
+          title: string
+          to_name: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string | null
+          completed_at?: string | null
+          created_at?: string
+          due_at?: string | null
+          from_name?: string
+          id?: string
+          response_comment?: string | null
+          status?: string
+          title?: string
+          to_name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {

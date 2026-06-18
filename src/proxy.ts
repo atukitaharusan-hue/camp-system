@@ -14,6 +14,10 @@ export async function proxy(request: NextRequest) {
     if (isPasswordAuthEnabled()) {
       const token = request.cookies.get(COOKIE_NAME)?.value;
       if (token && await verifySessionToken(token)) {
+        const next = request.nextUrl.searchParams.get('next');
+        if (next && next.startsWith('/')) {
+          return NextResponse.redirect(new URL(next, request.nextUrl.origin));
+        }
         const url = request.nextUrl.clone();
         url.pathname = '/admin';
         return NextResponse.redirect(url);
@@ -38,6 +42,7 @@ async function protectAdmin(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/admin/login';
     url.searchParams.set('error', 'missing-admin-password');
+    url.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 
@@ -46,6 +51,7 @@ async function protectAdmin(request: NextRequest) {
   if (!token || !await verifySessionToken(token)) {
     const url = request.nextUrl.clone();
     url.pathname = '/admin/login';
+    url.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

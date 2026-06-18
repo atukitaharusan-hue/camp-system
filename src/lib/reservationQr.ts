@@ -8,6 +8,16 @@ export function buildReservationQrValue(reservationId: string, qrToken: string) 
   return `${window.location.origin}${path}`;
 }
 
+export function buildCounterSessionQrValue(counterToken: string) {
+  const path = `/admin/checkin-session?token=${encodeURIComponent(counterToken)}`;
+
+  if (typeof window === 'undefined') {
+    return path;
+  }
+
+  return `${window.location.origin}${path}`;
+}
+
 export function extractReservationIdentityFromQr(rawValue: string) {
   const trimmed = rawValue.trim();
 
@@ -33,4 +43,25 @@ export function extractReservationIdentityFromQr(rawValue: string) {
   }
 
   return { reservationId: null, qrToken: null };
+}
+
+export function extractCounterSessionTokenFromQr(rawValue: string) {
+  const trimmed = rawValue.trim();
+
+  try {
+    const url = new URL(trimmed);
+    const pathMatches = /\/admin\/checkin-session$/i.test(url.pathname);
+    const token = url.searchParams.get('token');
+    return {
+      sessionToken: pathMatches && token && token.length > 0 ? token : null,
+    };
+  } catch {
+    // Plain text fallback below.
+  }
+
+  if (/^chk_[a-z0-9_-]{16,}$/i.test(trimmed)) {
+    return { sessionToken: trimmed };
+  }
+
+  return { sessionToken: null };
 }

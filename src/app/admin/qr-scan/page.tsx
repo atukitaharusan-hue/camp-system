@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { fetchOptions, fetchPlans } from '@/lib/admin/fetchData';
-import { extractReservationIdentityFromQr } from '@/lib/reservationQr';
+import { extractCounterSessionTokenFromQr, extractReservationIdentityFromQr } from '@/lib/reservationQr';
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
 import { generateReceptionCode, getPaymentMethodLabel } from '@/types/reservation';
 import type { Database, Json } from '@/types/database';
@@ -37,14 +38,13 @@ const STATUS_LABELS: Record<string, string> = {
   pending: '仮予約',
   confirmed: '予約確定',
   checked_in: 'チェックイン済み',
-  completed: '利用完了',
+  completed: '完了',
   cancelled: 'キャンセル',
   waitlisted: 'キャンセル待ち',
 };
 
 function parseReservationOptions(value: Json | null): ReservationOptionEntry[] {
   if (!Array.isArray(value)) return [];
-
   return value
     .filter((item): item is Record<string, Json> => typeof item === 'object' && item !== null && !Array.isArray(item))
     .map((item) => ({
@@ -81,6 +81,7 @@ function sameCustomer(target: GuestReservationRow, candidate: GuestReservationRo
 }
 
 export default function AdminQrScanPage() {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<DetectorLike | null>(null);
@@ -94,22 +95,15 @@ export default function AdminQrScanPage() {
   const [relatedReservations, setRelatedReservations] = useState<GuestReservationRow[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
   const [options, setOptions] = useState<OptionItem[]>([]);
-  const [updatingReservationId, setUpdatingReservationId] = useState<string | null>(null);
+  const [openingReservationId, setOpeningReservationId] = useState<string | null>(null);
 
   const supportsBarcodeDetector = useMemo(
     () => typeof window !== 'undefined' && 'BarcodeDetector' in window,
     [],
   );
 
-  const planNameMap = useMemo(
-    () => new Map(plans.map((plan) => [plan.id, plan.name])),
-    [plans],
-  );
-
-  const optionNameMap = useMemo(
-    () => new Map(options.map((option) => [option.id, option.name])),
-    [options],
-  );
+  const planNameMap = useMemo(() => new Map(plans.map((plan) => [plan.id, plan.name])), [plans]);
+  const optionNameMap = useMemo(() => new Map(options.map((option) => [option.id, option.name])), [options]);
 
   const stopScanner = useCallback(() => {
     if (frameRef.current) {
@@ -136,13 +130,20 @@ export default function AdminQrScanPage() {
       return;
     }
 
-    const { reservationId, qrToken } = extractReservationIdentityFromQr(trimmedValue);
-    if (!reservationId && !qrToken) {
-      setScanState({ type: 'error', message: 'QRコードの形式を認識できませんでした。予約QRか確認してください。' });
+    const counterSessionToken = extractCounterSessionTokenFromQr(trimmedValue).sessionToken;
+    if (counterSessionToken) {
+      stopScanner();
+      router.push(`/admin/checkin-session?token=${encodeURIComponent(counterSessionToken)}`);
       return;
     }
 
-    setScanState({ type: 'loading', message: 'QRコードから予約情報を確認しています...' });
+    const { reservationId, qrToken } = extractReservationIdentityFromQr(trimmedValue);
+    if (!reservationId && !qrToken) {
+      setScanState({ type: 'error', message: 'QRコードから予約情報を読み取れませんでした。' });
+      return;
+    }
+
+    setScanState({ type: 'loading', message: '予約情報を読み込んでいます...' });
     setMemberReservation(null);
     setRelatedReservations([]);
 
@@ -155,7 +156,7 @@ export default function AdminQrScanPage() {
 
     const { data: target, error: targetError } = await targetQuery.single();
     if (targetError || !target) {
-      setScanState({ type: 'error', message: '該当する会員・予約情報が見つかりませんでした。QRコードを確認してください。' });
+      setScanState({ type: 'error', message: '対象の予約が見つかりませんでした。' });
       return;
     }
 
@@ -165,7 +166,7 @@ export default function AdminQrScanPage() {
       .order('check_in_date', { ascending: false });
 
     if (reservationsError) {
-      setScanState({ type: 'error', message: `予約情報の取得に失敗しました: ${reservationsError.message}` });
+      setScanState({ type: 'error', message: `予約一覧の取得に失敗しました: ${reservationsError.message}` });
       return;
     }
 
@@ -174,14 +175,13 @@ export default function AdminQrScanPage() {
     setRelatedReservations(related);
     setScanState({
       type: 'success',
-      message: related.length > 0 ? `${target.user_name} さんの予約情報を表示しました。` : '会員情報は見つかりましたが、紐づく予約がありません。',
+      message: related.length > 0 ? `${target.user_name} さんの予約を表示しました。` : '会員情報は見つかりましたが、紐づく予約がありません。',
     });
     stopScanner();
-  }, [stopScanner]);
+  }, [router, stopScanner]);
 
   const scanFrame = useCallback(async () => {
     if (!videoRef.current || !detectorRef.current) return;
-
     try {
       const barcodes = await detectorRef.current.detect(videoRef.current);
       const value = barcodes[0]?.rawValue;
@@ -191,9 +191,8 @@ export default function AdminQrScanPage() {
         return;
       }
     } catch {
-      // Keep scanning on individual frame errors.
+      // keep scanning
     }
-
     frameRef.current = requestAnimationFrame(scanFrame);
   }, [loadMemberByQrValue]);
 
@@ -201,7 +200,7 @@ export default function AdminQrScanPage() {
     if (!supportsBarcodeDetector) {
       setScanState({
         type: 'error',
-        message: 'この端末ではカメラQR読み取りに対応していません。下の手入力欄にQR内容、予約ID、またはQRトークンを入力してください。',
+        message: 'この端末ではカメラQR読取に対応していません。下の入力欄に予約ID・QR・URLを貼り付けてください。',
       });
       return;
     }
@@ -238,55 +237,26 @@ export default function AdminQrScanPage() {
     }
   };
 
-  const handleCheckIn = async (reservation: GuestReservationRow) => {
+  const openProcessing = async (reservation: GuestReservationRow) => {
     if (reservation.status === 'checked_in') {
       setScanState({ type: 'success', message: 'この予約はすでにチェックイン済みです。' });
       return;
     }
-
-    if (!window.confirm(`${generateReceptionCode(reservation.id)} をチェックイン済みに更新しますか？`)) return;
-
-    setUpdatingReservationId(reservation.id);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const response = await fetch('/api/admin/reservations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'checkIn', id: reservation.id }),
-    });
-    const result = await response.json().catch(() => ({}));
-
-    setUpdatingReservationId(null);
-
-    if (!response.ok || !result.success) {
-      const message = typeof result.error === 'string' ? result.error : 'チェックイン更新に失敗しました。';
-      setScanState({ type: 'error', message: `チェックイン更新に失敗しました: ${message}` });
-      return;
-    }
-
-    setRelatedReservations((current) =>
-      current.map((item) =>
-        item.id === reservation.id
-          ? { ...item, status: 'checked_in', checked_in_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-          : item,
-      ),
-    );
-    setScanState({ type: 'success', message: `${reservation.user_name} さんの予約をチェックイン済みに更新しました。${user?.email ? `（操作: ${user.email}）` : ''}` });
+    setOpeningReservationId(reservation.id);
+    router.push(`/admin/checkin-session?reservationId=${encodeURIComponent(reservation.id)}`);
   };
 
   return (
     <div className="max-w-6xl space-y-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">QRコード読み取り</h1>
+        <h1 className="text-xl font-bold text-gray-900">QR読取</h1>
         <p className="mt-1 text-sm text-gray-500">
-          管理画面内でカメラを起動し、ユーザーのQRコードから会員情報と予約一覧を表示します。対象予約だけをチェックイン済みに更新できます。
+          会計用QRを読むと、そのまま管理人のチェックイン最終確定画面へ進みます。お客様側の予約QRを読んだ場合は、関連予約を一覧表示して対応を選べます。
         </p>
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          ユーザーQRをスマホで直接開いた場合は、管理人専用パスワードの入力後に情報を表示します。
+          お客様用QRをスマホで運用したい場合は、QR表示用パスワードを設定してください。
           <Link href="/admin/qr-screen" className="ml-2 font-semibold text-amber-900 underline">
-            パスワードを設定する
+            QR画面を設定する
           </Link>
         </div>
       </div>
@@ -316,20 +286,20 @@ export default function AdminQrScanPage() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <label className="mb-2 block text-sm font-semibold text-gray-800">QR内容を手入力</label>
+        <label className="mb-2 block text-sm font-semibold text-gray-800">QR内容を手入力する</label>
         <div className="flex flex-col gap-3 sm:flex-row">
           <input
             value={manualValue}
             onChange={(event) => setManualValue(event.target.value)}
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-            placeholder="reservation id / qr token / url"
+            placeholder="reservation id / qr token / url / 会計用トークン"
           />
           <button
             type="button"
             onClick={() => loadMemberByQrValue(manualValue)}
             className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
           >
-            確認
+            読み込む
           </button>
         </div>
       </section>
@@ -348,16 +318,14 @@ export default function AdminQrScanPage() {
         </div>
       )}
 
-      {memberReservation && (
-        <MemberInfoCard reservation={memberReservation} reservationCount={relatedReservations.length} />
-      )}
+      {memberReservation ? <MemberInfoCard reservation={memberReservation} reservationCount={relatedReservations.length} /> : null}
 
       {memberReservation && (
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">予約情報一覧</h2>
-              <p className="mt-1 text-sm text-gray-500">会員情報に紐づく予約を表示しています。</p>
+              <h2 className="text-base font-semibold text-gray-900">関連予約一覧</h2>
+              <p className="mt-1 text-sm text-gray-500">会計・チェックイン対応を行う予約を選んでください。</p>
             </div>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
               {relatedReservations.length}件
@@ -366,7 +334,7 @@ export default function AdminQrScanPage() {
 
           {relatedReservations.length === 0 ? (
             <div className="rounded border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-              この会員に紐づく予約は見つかりませんでした。
+              この会員に紐づく予約がありません。
             </div>
           ) : (
             <div className="space-y-4">
@@ -376,8 +344,8 @@ export default function AdminQrScanPage() {
                   reservation={reservation}
                   planName={reservation.plan_id ? planNameMap.get(reservation.plan_id) ?? 'プラン未設定' : 'プラン未設定'}
                   optionNameMap={optionNameMap}
-                  updating={updatingReservationId === reservation.id}
-                  onCheckIn={() => handleCheckIn(reservation)}
+                  updating={openingReservationId === reservation.id}
+                  onCheckIn={() => openProcessing(reservation)}
                 />
               ))}
             </div>
@@ -400,7 +368,7 @@ function MemberInfoCard({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-emerald-950">会員情報</h2>
-          <p className="mt-1 text-sm text-emerald-700">読み取り後、まず本人確認用の情報を表示しています。</p>
+          <p className="mt-1 text-sm text-emerald-700">読み取ったQRから紐づく会員情報を表示しています。</p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
           関連予約 {reservationCount}件
@@ -410,8 +378,7 @@ function MemberInfoCard({
         <InfoItem label="氏名" value={reservation.user_name} />
         <InfoItem label="電話番号" value={reservation.user_phone ?? '-'} />
         <InfoItem label="メールアドレス" value={reservation.user_email ?? '-'} />
-        <InfoItem label="会員番号 / 顧客識別" value={reservation.user_identifier ?? reservation.user_email ?? reservation.user_phone ?? reservation.id} />
-        <InfoItem label="LINE表示名" value={reservation.user_identifier ? reservation.user_name : '-'} />
+        <InfoItem label="会員識別子" value={reservation.user_identifier ?? reservation.user_email ?? reservation.user_phone ?? reservation.id} />
         <InfoItem label="性別" value={reservation.user_gender ?? '-'} />
         <InfoItem label="職業" value={reservation.user_occupation ?? '-'} />
         <InfoItem label="住所" value={reservation.user_address ?? '-'} />
@@ -455,11 +422,9 @@ function ReservationCheckInCard({
             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${isCheckedIn ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
               {STATUS_LABELS[reservation.status ?? 'pending'] ?? reservation.status ?? '未設定'}
             </span>
-            {reservation.checked_in_at && (
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
-                {new Date(reservation.checked_in_at).toLocaleString('ja-JP')}
-              </span>
-            )}
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs text-gray-500">
+              {reservation.checkin_flow_status ?? '進行前'}
+            </span>
           </div>
         </div>
         <button
@@ -468,39 +433,42 @@ function ReservationCheckInCard({
           disabled={isCheckedIn || updating || reservation.status === 'cancelled' || reservation.status === 'waitlisted'}
           className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
         >
-          {isCheckedIn ? 'チェックイン済み' : updating ? '更新中...' : 'チェックイン済みにする'}
+          {isCheckedIn ? 'チェックイン済み' : updating ? '画面を開いています...' : '対応を開く'}
         </button>
+        <Link
+          href={`/admin/register?reservationId=${encodeURIComponent(reservation.id)}`}
+          className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+        >
+          レジ会計をする
+        </Link>
       </div>
 
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-        <InfoItem label="プラン名" value={planName} />
+        <InfoItem label="プラン" value={planName} />
         <InfoItem label="サイト番号 / サイト名" value={siteLabel} />
         <InfoItem label="宿泊日" value={`${reservation.check_in_date} - ${reservation.check_out_date}`} />
-        <InfoItem label="チェックイン時間" value="管理画面で未設定" />
-        <InfoItem label="チェックアウト時間" value="管理画面で未設定" />
-        <InfoItem label="泊数" value={`${reservation.nights ?? 0}泊`} />
-        <InfoItem label="人数" value={`大人 ${reservation.adults ?? 0} / 子供 ${reservation.children ?? 0} / 幼児 ${reservation.infants ?? 0} / 合計 ${reservation.guests ?? 0}`} />
+        <InfoItem label="人数" value={`大人 ${reservation.adults ?? 0} / 子ども ${reservation.children ?? 0} / 幼児 ${reservation.infants ?? 0} / 合計 ${reservation.guests ?? 0}`} />
         <InfoItem label="支払い方法" value={getPaymentMethodLabel(reservation.payment_method)} />
-        <InfoItem label="合計金額" value={`¥${Number(reservation.total_amount ?? 0).toLocaleString()}`} />
+        <InfoItem label="予約金額" value={`¥${Number(reservation.total_amount ?? 0).toLocaleString()}`} />
       </div>
 
       <div className="mt-4 rounded-xl bg-white p-3 text-sm">
-        <div className="mb-2 font-semibold text-gray-800">オプション内容</div>
+        <div className="mb-2 font-semibold text-gray-800">追加項目</div>
         {optionEntries.length === 0 ? (
-          <p className="text-gray-500">オプションなし</p>
+          <p className="text-gray-500">追加項目はありません。</p>
         ) : (
           <div className="space-y-2">
             {optionEntries.map((option, index) => {
-              const optionName = option.name ?? (option.optionId ? optionNameMap.get(option.optionId) : undefined) ?? 'オプション';
+              const optionName = option.name ?? (option.optionId ? optionNameMap.get(option.optionId) : undefined) ?? '追加項目';
               return (
                 <div key={`${option.optionId ?? 'option'}-${index}`} className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2 last:border-b-0 last:pb-0">
-                  <span>{optionName} × {getOptionQuantityLabel(option)}</span>
+                  <span>{optionName} / {getOptionQuantityLabel(option)}</span>
                   <span>¥{Number(option.subtotal ?? 0).toLocaleString()}</span>
                 </div>
               );
             })}
             <div className="border-t border-gray-100 pt-2 text-right font-semibold text-gray-900">
-              オプション合計 ¥{optionTotal.toLocaleString()}
+              追加項目合計: ¥{optionTotal.toLocaleString()}
             </div>
           </div>
         )}

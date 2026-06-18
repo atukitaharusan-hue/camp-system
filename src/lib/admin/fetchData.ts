@@ -1,8 +1,14 @@
-import { supabase } from '@/lib/supabase';
+﻿import { supabase } from '@/lib/supabase';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 import type {
   AdminAccountProfile,
+  AccountingSubjectSetting,
+  EasyModeCategorySetting,
+  EasyModeFooterItemSetting,
+  EasyModeInventoryOverride,
+  SalesReportCategorySetting,
+  SalesReportOutputSetting,
   AdminEvent,
   AdminMember,
   AdminMemberInvite,
@@ -24,6 +30,13 @@ import {
   normalizeGuestBandRules,
   normalizePricingSettings,
 } from '@/lib/pricing';
+import { normalizeInventoryOverrides } from '@/lib/easyMode';
+import {
+  getGeneratedEventSubjectId,
+  getGeneratedOptionSubjectId,
+  getGeneratedPlanSubjectId,
+  getGeneratedSiteSubjectId,
+} from '@/lib/accountingSubjects';
 
 type AdminSupabaseClient = SupabaseClient<Database>;
 
@@ -596,13 +609,35 @@ export async function saveOptions(options: OptionItem[]): Promise<void> {
 // ============================================================
 
 async function fetchSetting<T>(key: string): Promise<T | null> {
-  const { data, error } = await supabase
-    .from('app_settings')
-    .select('value')
-    .eq('key', key)
-    .maybeSingle();
-  if (error) { console.error(`fetchSetting(${key}) error:`, error); return null; }
-  return data?.value as T | null;
+  const response = await fetch(`/api/admin/settings?key=${encodeURIComponent(key)}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    console.error(`fetchSetting(${key}) error:`, payload);
+    return null;
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  return (payload?.value as T | null) ?? null;
+}
+
+async function fetchPublicSetting<T>(key: string): Promise<T | null> {
+  const response = await fetch(`/api/settings?key=${encodeURIComponent(key)}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    console.error(`fetchPublicSetting(${key}) error:`, payload);
+    return null;
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  return (payload?.value as T | null) ?? null;
 }
 
 async function saveSetting(key: string, value: unknown): Promise<void> {
@@ -631,7 +666,7 @@ const defaultPolicySettings: AdminPolicySettings = {
 
 export async function fetchPricingSettings(): Promise<PricingSettings> {
   return normalizePricingSettings(
-    (await fetchSetting<PricingSettings>('pricing_settings')) ?? defaultPricingSettings,
+    (await fetchPublicSetting<PricingSettings>('pricing_settings')) ?? defaultPricingSettings,
   );
 }
 
@@ -641,7 +676,7 @@ export async function savePricingSettings(settings: PricingSettings): Promise<vo
 }
 
 export async function fetchPolicySettings(): Promise<AdminPolicySettings> {
-  return (await fetchSetting<AdminPolicySettings>('policy_settings')) ?? defaultPolicySettings;
+  return (await fetchPublicSetting<AdminPolicySettings>('policy_settings')) ?? defaultPolicySettings;
 }
 
 export async function savePolicySettings(settings: AdminPolicySettings): Promise<void> {
@@ -660,7 +695,7 @@ const defaultQrScreenSettings: AdminQrScreenSettings = {
 };
 
 export async function fetchQrScreenSettings(): Promise<AdminQrScreenSettings> {
-  return (await fetchSetting<AdminQrScreenSettings>('qr_screen_settings')) ?? defaultQrScreenSettings;
+  return (await fetchPublicSetting<AdminQrScreenSettings>('qr_screen_settings')) ?? defaultQrScreenSettings;
 }
 
 export async function saveQrScreenSettings(settings: AdminQrScreenSettings): Promise<void> {
@@ -675,7 +710,7 @@ const defaultSiteMapSettings: AdminSiteMapSettings = {
 };
 
 export async function fetchSiteMapSettings(): Promise<AdminSiteMapSettings> {
-  return (await fetchSetting<AdminSiteMapSettings>('site_map_settings')) ?? defaultSiteMapSettings;
+  return (await fetchPublicSetting<AdminSiteMapSettings>('site_map_settings')) ?? defaultSiteMapSettings;
 }
 
 export async function saveSiteMapSettings(settings: AdminSiteMapSettings): Promise<void> {
@@ -689,8 +724,406 @@ const defaultCalendarDisplaySettings: CalendarDisplaySettings = {
   thresholds: { warningRatio: 0.3 },
 };
 
+function createEasyModeCategoryDefault(
+  id: string,
+  name: string,
+  type: EasyModeCategorySetting['type'],
+  icon: string,
+  sortOrder: number,
+): EasyModeCategorySetting {
+  return {
+    id,
+    name,
+    type,
+    icon,
+    color: '#3B82F6',
+    sortOrder,
+    isVisible: true,
+    targetDevice: 'all',
+    targetRole: 'all',
+    targetStaffIds: [],
+    displayCondition: 'always',
+    config: {},
+    description: '',
+  };
+}
+
+function createEasyModeFooterDefault(
+  id: string,
+  label: string,
+  actionType: EasyModeFooterItemSetting['actionType'],
+  icon: string,
+  sortOrder: number,
+  isRequired: boolean,
+): EasyModeFooterItemSetting {
+  return {
+    id,
+    label,
+    actionType,
+    icon,
+    sortOrder,
+    isVisible: true,
+    isRequired,
+    customUrl: '',
+  };
+}
+
+export const defaultEasyModeCategories: EasyModeCategorySetting[] = [
+  createEasyModeCategoryDefault('today-guests', '今日のお客様', 'today_guests', '👥', 1),
+  createEasyModeCategoryDefault('availability', '空き状況', 'availability', '📅', 2),
+  createEasyModeCategoryDefault('checkout', '会計', 'checkout', '🛒', 3),
+  createEasyModeCategoryDefault('inventory', '在庫状況', 'inventory', '📦', 4),
+  createEasyModeCategoryDefault('staff-memos', 'やることメモ', 'staff_memos', '📝', 5),
+  createEasyModeCategoryDefault('reservations', '予約一覧', 'reservations', '📋', 6),
+];
+
+export const defaultEasyModeFooterItems: EasyModeFooterItemSetting[] = [
+  createEasyModeFooterDefault('home', 'ホーム', 'home', '🏠', 1, true),
+  createEasyModeFooterDefault('new-reservation', '予約登録', 'new_reservation', '➕', 2, false),
+  createEasyModeFooterDefault('cancel', 'キャンセル', 'cancel', '❌', 3, false),
+  createEasyModeFooterDefault('site-assignment', 'サイト割振', 'site_assignment', '🗺️', 4, false),
+  createEasyModeFooterDefault('checkin', 'チェックイン', 'checkin', '✅', 5, true),
+  createEasyModeFooterDefault('checkout', '会計', 'checkout', '💰', 6, true),
+];
+
+function normalizeEasyModeCategories(
+  value: EasyModeCategorySetting[] | null,
+): EasyModeCategorySetting[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return defaultEasyModeCategories;
+  }
+
+  return value
+    .map((item, index) => ({
+      ...createEasyModeCategoryDefault(
+        typeof item?.id === 'string' && item.id ? item.id : `category-${index + 1}`,
+        typeof item?.name === 'string' && item.name ? item.name : `カテゴリ${index + 1}`,
+        item?.type ?? 'custom_memo',
+        typeof item?.icon === 'string' && item.icon ? item.icon : '🧩',
+        typeof item?.sortOrder === 'number' ? item.sortOrder : index + 1,
+      ),
+      ...item,
+      targetStaffIds: Array.isArray(item?.targetStaffIds)
+        ? item.targetStaffIds.filter((staffId): staffId is string => typeof staffId === 'string')
+        : [],
+      config:
+        item?.config && typeof item.config === 'object' && !Array.isArray(item.config)
+          ? item.config
+          : {},
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function normalizeEasyModeFooterItems(
+  value: EasyModeFooterItemSetting[] | null,
+): EasyModeFooterItemSetting[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return defaultEasyModeFooterItems;
+  }
+
+  return value
+    .map((item, index) => ({
+      ...createEasyModeFooterDefault(
+        typeof item?.id === 'string' && item.id ? item.id : `footer-${index + 1}`,
+        typeof item?.label === 'string' && item.label ? item.label : `項目${index + 1}`,
+        item?.actionType ?? 'custom_link',
+        typeof item?.icon === 'string' && item.icon ? item.icon : '🔗',
+        typeof item?.sortOrder === 'number' ? item.sortOrder : index + 1,
+        Boolean(item?.isRequired),
+      ),
+      ...item,
+      customUrl: typeof item?.customUrl === 'string' ? item.customUrl : '',
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
 export async function fetchCalendarDisplaySettings(): Promise<CalendarDisplaySettings> {
-  return (await fetchSetting<CalendarDisplaySettings>('calendar_display_settings')) ?? defaultCalendarDisplaySettings;
+  return (await fetchPublicSetting<CalendarDisplaySettings>('calendar_display_settings')) ?? defaultCalendarDisplaySettings;
+}
+
+export async function fetchEasyModeCategories(): Promise<EasyModeCategorySetting[]> {
+  return normalizeEasyModeCategories(
+    (await fetchSetting<EasyModeCategorySetting[]>('easy_mode_categories')) ?? null,
+  );
+}
+
+export async function saveEasyModeCategories(categories: EasyModeCategorySetting[]): Promise<void> {
+  await saveSetting('easy_mode_categories', categories);
+}
+
+export async function fetchEasyModeFooterItems(): Promise<EasyModeFooterItemSetting[]> {
+  return normalizeEasyModeFooterItems(
+    (await fetchSetting<EasyModeFooterItemSetting[]>('easy_mode_footer_items')) ?? null,
+  );
+}
+
+export async function saveEasyModeFooterItems(items: EasyModeFooterItemSetting[]): Promise<void> {
+  await saveSetting('easy_mode_footer_items', items);
+}
+
+export async function fetchEasyModeInventoryOverrides(): Promise<Record<string, EasyModeInventoryOverride>> {
+  const value = await fetchSetting<Record<string, EasyModeInventoryOverride>>('easy_mode_inventory_overrides');
+  return normalizeInventoryOverrides(value);
+}
+
+export async function saveEasyModeInventoryOverrides(
+  overrides: Record<string, EasyModeInventoryOverride>,
+): Promise<void> {
+  await saveSetting('easy_mode_inventory_overrides', overrides);
+}
+
+function normalizeSalesReportCategories(
+  value: SalesReportCategorySetting[] | null,
+): SalesReportCategorySetting[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => ({
+      id: typeof item?.id === 'string' && item.id ? item.id : `sales-category-${index + 1}`,
+      parentCategoryName:
+        typeof item?.parentCategoryName === 'string' && item.parentCategoryName.trim()
+          ? item.parentCategoryName.trim()
+          : 'その他売上',
+      subjectIds: Array.isArray(item?.subjectIds)
+        ? Array.from(
+            new Set(
+              item.subjectIds.filter(
+                (subjectId): subjectId is string =>
+                  typeof subjectId === 'string' && subjectId.trim().length > 0,
+              ),
+            ),
+          )
+        : [],
+      sortOrder: typeof item?.sortOrder === 'number' ? item.sortOrder : index + 1,
+      isActive: item?.isActive !== false,
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function normalizeAccountingSubjects(
+  value: AccountingSubjectSetting[] | null,
+): AccountingSubjectSetting[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => ({
+      id: typeof item?.id === 'string' && item.id ? item.id : `accounting-subject-${index + 1}`,
+      name:
+        typeof item?.name === 'string' && item.name.trim()
+          ? item.name.trim()
+          : `会計科目${index + 1}`,
+      defaultUnitPrice: Number.isFinite(Number(item?.defaultUnitPrice))
+        ? Number(item.defaultUnitPrice)
+        : 0,
+      kind:
+        item?.kind === 'lodging' ||
+        item?.kind === 'entry_fee' ||
+        item?.kind === 'tax' ||
+        item?.kind === 'rental' ||
+        item?.kind === 'event' ||
+        item?.kind === 'shop' ||
+        item?.kind === 'other'
+          ? item.kind
+          : 'other',
+      sortOrder: typeof item?.sortOrder === 'number' ? item.sortOrder : index + 1,
+      isActive: item?.isActive !== false,
+      notes: typeof item?.notes === 'string' ? item.notes : '',
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+async function buildGeneratedAccountingSubjects(): Promise<AccountingSubjectSetting[]> {
+  const [plans, sites, events, options] = await Promise.all([
+    fetchPlans(),
+    fetchSites(),
+    fetchEvents(),
+    fetchOptions(),
+  ]);
+
+  const generated: AccountingSubjectSetting[] = [];
+
+  plans.forEach((plan) => {
+    if (plan.basePrice > 0) {
+      generated.push({
+        id: getGeneratedPlanSubjectId(plan.id, 'base'),
+        name: plan.name,
+        defaultUnitPrice: plan.basePrice,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'プラン管理から自動反映',
+      });
+    }
+
+    if (plan.adultPrice > 0) {
+      generated.push({
+        id: getGeneratedPlanSubjectId(plan.id, 'adult'),
+        name: `${plan.name} 大人料金`,
+        defaultUnitPrice: plan.adultPrice,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'プラン管理から自動反映',
+      });
+    }
+
+    if (plan.childPrice > 0) {
+      generated.push({
+        id: getGeneratedPlanSubjectId(plan.id, 'child'),
+        name: `${plan.name} 子ども料金`,
+        defaultUnitPrice: plan.childPrice,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'プラン管理から自動反映',
+      });
+    }
+
+    if (plan.infantPrice > 0) {
+      generated.push({
+        id: getGeneratedPlanSubjectId(plan.id, 'infant'),
+        name: `${plan.name} 幼児料金`,
+        defaultUnitPrice: plan.infantPrice,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'プラン管理から自動反映',
+      });
+    }
+  });
+
+  sites.forEach((site) => {
+    if (site.basePrice > 0) {
+      generated.push({
+        id: getGeneratedSiteSubjectId(site.id, 'base'),
+        name: `${site.siteName} 基本料金`,
+        defaultUnitPrice: site.basePrice,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'サイト管理から自動反映',
+      });
+    }
+
+    if (site.designationFee > 0) {
+      generated.push({
+        id: getGeneratedSiteSubjectId(site.id, 'designation'),
+        name: `${site.siteName} 指定料金`,
+        defaultUnitPrice: site.designationFee,
+        kind: 'lodging',
+        sortOrder: 0,
+        isActive: true,
+        notes: 'サイト管理から自動反映',
+      });
+    }
+  });
+
+  events.forEach((event) => {
+    generated.push({
+      id: getGeneratedEventSubjectId(event.id),
+      name: event.title,
+      defaultUnitPrice: 0,
+      kind: 'event',
+      sortOrder: 0,
+      isActive: true,
+      notes: 'イベント管理から自動反映',
+    });
+  });
+
+  options.forEach((option) => {
+    generated.push({
+      id: getGeneratedOptionSubjectId(option.id),
+      name: option.name,
+      defaultUnitPrice: option.price,
+      kind: option.category === 'event' ? 'event' : 'rental',
+      sortOrder: 0,
+      isActive: true,
+      notes: 'オプション管理から自動反映',
+    });
+  });
+
+  return generated;
+}
+
+function mergeAccountingSubjects(
+  savedSubjects: AccountingSubjectSetting[],
+  generatedSubjects: AccountingSubjectSetting[],
+): AccountingSubjectSetting[] {
+  const savedMap = new Map(savedSubjects.map((subject) => [subject.id, subject]));
+  const manualSubjects = savedSubjects.filter((subject) => !subject.id.startsWith('generated-'));
+
+  const mergedGenerated = generatedSubjects.map((subject, index) => {
+    const saved = savedMap.get(subject.id);
+    return {
+      ...subject,
+      kind: saved?.kind ?? subject.kind,
+      sortOrder: saved?.sortOrder ?? manualSubjects.length + index + 1,
+      isActive: saved?.isActive ?? subject.isActive,
+      notes: saved?.notes ?? subject.notes,
+    };
+  });
+
+  const mergedManual = manualSubjects.map((subject, index) => ({
+    ...subject,
+    sortOrder: subject.sortOrder || index + 1,
+  }));
+
+  return [...mergedManual, ...mergedGenerated].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function normalizeSalesReportOutputs(
+  value: SalesReportOutputSetting[] | null,
+): SalesReportOutputSetting[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => ({
+      id: typeof item?.id === 'string' && item.id ? item.id : `sales-output-${index + 1}`,
+      reportName:
+        typeof item?.reportName === 'string' && item.reportName.trim()
+          ? item.reportName.trim()
+          : `売上日報${index + 1}`,
+      includedCategories: Array.isArray(item?.includedCategories)
+        ? item.includedCategories.filter((category): category is string => typeof category === 'string' && category.trim().length > 0)
+        : [],
+      splitByCategory: Boolean(item?.splitByCategory),
+      outputFormat: 'pdf' as const,
+      sortOrder: typeof item?.sortOrder === 'number' ? item.sortOrder : index + 1,
+      isActive: item?.isActive !== false,
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export async function fetchSalesReportCategories(): Promise<SalesReportCategorySetting[]> {
+  return normalizeSalesReportCategories(
+    (await fetchSetting<SalesReportCategorySetting[]>('sales_report_categories')) ?? null,
+  );
+}
+
+export async function saveSalesReportCategories(categories: SalesReportCategorySetting[]): Promise<void> {
+  await saveSetting('sales_report_categories', normalizeSalesReportCategories(categories));
+}
+
+export async function fetchAccountingSubjects(): Promise<AccountingSubjectSetting[]> {
+  const savedSubjects = normalizeAccountingSubjects(
+    (await fetchSetting<AccountingSubjectSetting[]>('accounting_subjects')) ?? null,
+  );
+  const generatedSubjects = await buildGeneratedAccountingSubjects();
+  return mergeAccountingSubjects(savedSubjects, generatedSubjects);
+}
+
+export async function saveAccountingSubjects(subjects: AccountingSubjectSetting[]): Promise<void> {
+  await saveSetting('accounting_subjects', normalizeAccountingSubjects(subjects));
+}
+
+export async function fetchSalesReportOutputSettings(): Promise<SalesReportOutputSetting[]> {
+  return normalizeSalesReportOutputs(
+    (await fetchSetting<SalesReportOutputSetting[]>('sales_report_output_settings')) ?? null,
+  );
+}
+
+export async function saveSalesReportOutputSettings(settings: SalesReportOutputSetting[]): Promise<void> {
+  await saveSetting('sales_report_output_settings', normalizeSalesReportOutputs(settings));
 }
 
 // --- Admin Account ---
@@ -944,3 +1377,4 @@ export async function fetchSiteDetails(planSiteMap?: Map<string, string[]>): Pro
     };
   });
 }
+

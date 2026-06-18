@@ -9,6 +9,7 @@ import { calculatePlanAccommodationAmount, calculateReservationPricing } from '@
 import { getSiteSelectionLabel } from '@/lib/siteSelectionLabel';
 import { hasSiteSelection } from '@/lib/siteSelectionState';
 import { useBookingDraftStore } from '@/stores/bookingDraftStore';
+import { useLiff } from '@/contexts/LiffContext';
 import type { OptionsPayload, OptionItem } from '@/types/options';
 import type { AdminPolicySettings } from '@/types/admin';
 import type { ReservationPricingBreakdown } from '@/types/pricing';
@@ -115,6 +116,8 @@ export default function TermsPaymentPage() {
   const lineProfile = useBookingDraftStore((state) => state.lineProfile);
   const setPolicy = useBookingDraftStore((state) => state.setPolicy);
   const setPayment = useBookingDraftStore((state) => state.setPayment);
+  const setLineProfile = useBookingDraftStore((state) => state.setLineProfile);
+  const { isReady: isLiffReady, profile } = useLiff();
 
   const hasStay = !!(stay.checkIn && stay.checkOut && stay.nights > 0);
   const hasSite = hasSiteSelection(site);
@@ -155,6 +158,15 @@ export default function TermsPaymentPage() {
     fetchPolicySettings().then(setPolicySettings);
     fetchOptions().then(setAllOptions);
   }, []);
+
+  useEffect(() => {
+    if (!isLiffReady || !profile) return;
+    setLineProfile({
+      userId: profile.userId,
+      displayName: profile.displayName,
+      pictureUrl: profile.pictureUrl ?? null,
+    });
+  }, [isLiffReady, profile, setLineProfile]);
 
   useEffect(() => {
     if (!payload) return;

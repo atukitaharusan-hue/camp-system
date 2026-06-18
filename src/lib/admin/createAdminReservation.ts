@@ -7,6 +7,7 @@ type GuestReservationRow = Database['public']['Tables']['guest_reservations']['R
 type AdminSupabaseClient = SupabaseClient<Database>;
 type PaymentMethod = Database['public']['Enums']['payment_method'];
 type PaymentStatus = Database['public']['Enums']['payment_status'];
+type ReservationStatus = Database['public']['Enums']['reservation_status'];
 
 export interface AdminReservationInput {
   userName: string;
@@ -32,9 +33,12 @@ export interface AdminReservationInput {
   siteNumber: string;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  status?: ReservationStatus;
   specialRequests: string;
   totalAmount: number;
+  optionsJson?: Database['public']['Tables']['guest_reservations']['Row']['options_json'];
   requestedSiteCount?: number;
+  allowCapacityOverride?: boolean;
   planItems?: Array<{
     planId: string;
     siteCount: number;
@@ -81,6 +85,7 @@ function buildCustomerMemo(input: AdminReservationInput) {
   return [
     `PLAN_ID: ${input.planId}`,
     `REQUESTED_SITE_COUNT: ${getTotalRequestedSiteCount(input)}`,
+    `ALLOW_CAPACITY_OVERRIDE: ${input.allowCapacityOverride ? 'true' : 'false'}`,
     `SELECTED_SITE_NUMBERS: ${getAllSelectedSiteNumbers(input).join(',')}`,
     `MULTI_PLAN_ITEMS: ${JSON.stringify(normalizedPlanItems)}`,
     `GENDER: ${input.gender || ''}`,
@@ -169,6 +174,7 @@ export async function createAdminReservationInDatabase(
       planId: item.planId,
       requestedSiteCount: item.siteCount,
       selectedSiteNumbers: item.siteNumbers,
+      allowCapacityOverride: input.allowCapacityOverride === true,
     });
 
     if (!validation.valid) {
@@ -203,11 +209,12 @@ export async function createAdminReservationInDatabase(
       selected_site_numbers: selectedSiteNumbers,
       site_number: selectedSiteNumbers[0] ?? null,
       total_amount: input.totalAmount,
-      status: 'confirmed',
+      status: input.status ?? 'confirmed',
       payment_method: input.paymentMethod,
       payment_status: input.paymentStatus,
       qr_token: generateQrToken(),
-      options_json: [],
+      checked_in_at: (input.status ?? 'confirmed') === 'checked_in' ? new Date().toISOString() : null,
+      options_json: (input.optionsJson ?? []) as Database['public']['Tables']['guest_reservations']['Insert']['options_json'],
       agreed_cancellation: true,
       agreed_terms: true,
       agreed_sns: false,
