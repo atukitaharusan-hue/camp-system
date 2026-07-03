@@ -328,6 +328,13 @@ export default function AdminReservationsPage() {
     () =>
       reservations.map((reservation) => {
         const memoFields = parseMemoFields(reservation.special_requests);
+        const mypageStatus = mypageStatuses[reservation.id];
+        const mypageLinkLabel =
+          mypageStatus?.linkStatus === 'linked'
+            ? 'LINE連携済み'
+            : mypageStatus?.linkStatus === 'support'
+              ? 'サポート確認のみ'
+              : '未連携';
         const selectedSiteNumbers = getSelectedSiteNumbers(reservation.selected_site_numbers);
         const fallbackSiteNumbers = selectedSiteNumbers.length > 0 ? selectedSiteNumbers : reservation.site_number ? [reservation.site_number] : [];
         const planNames =
@@ -523,6 +530,13 @@ export default function AdminReservationsPage() {
       const XLSX = await import('xlsx');
       const rows = filteredReservations.map((reservation) => {
         const memoFields = parseMemoFields(reservation.special_requests);
+        const mypageStatus = mypageStatuses[reservation.id];
+        const mypageLinkLabel =
+          mypageStatus?.linkStatus === 'linked'
+            ? 'LINE連携済み'
+            : mypageStatus?.linkStatus === 'support'
+              ? 'サポート確認のみ'
+              : '未連携';
         const selectedSiteNumbers = getSelectedSiteNumbers(reservation.selected_site_numbers);
         const fallbackSiteNumbers = selectedSiteNumbers.length > 0 ? selectedSiteNumbers : reservation.site_number ? [reservation.site_number] : [];
         const optionEntries = parseReservationOptions(reservation.options_json);
@@ -569,6 +583,8 @@ export default function AdminReservationsPage() {
           住所: buildAddress(memoFields),
           LINE表示名: memoFields.lineDisplayName ?? '',
           LINE_ID: memoFields.lineId ?? '',
+          'LINE連携状態': mypageLinkLabel,
+          '予約のLINE ID': mypageStatus?.lineUserId ?? '',
           プラン名: planNames,
           サイト番号: siteNumbers,
           サイト名: siteNames || reservation.site_name || '',
@@ -600,6 +616,8 @@ export default function AdminReservationsPage() {
         { wch: 34 },
         { wch: 18 },
         { wch: 20 },
+        { wch: 16 },
+        { wch: 24 },
         { wch: 28 },
         { wch: 18 },
         { wch: 22 },
@@ -616,7 +634,7 @@ export default function AdminReservationsPage() {
         { wch: 14 },
         { wch: 34 },
       ];
-      worksheet['!autofilter'] = { ref: worksheet['!ref'] ?? 'A1:Z1' };
+      worksheet['!autofilter'] = { ref: worksheet['!ref'] ?? 'A1:AB1' };
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '予約一覧');
@@ -630,7 +648,7 @@ export default function AdminReservationsPage() {
     } finally {
       setExportingExcel(false);
     }
-  }, [filteredReservations, getPlanName, optionNameMap, siteNameMap]);
+  }, [filteredReservations, getPlanName, mypageStatuses, optionNameMap, siteNameMap]);
 
   const handleDelete = useCallback(
     async (reservationId: string) => {
