@@ -21,6 +21,7 @@ import { ReservationDetailEditorModal } from '@/components/admin/ReservationDeta
 type GuestReservationRow = Database['public']['Tables']['guest_reservations']['Row'];
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
 type MyPageLinkStatus = 'linked' | 'support' | 'unlinked';
+type MyPageStatusEntry = { linkStatus: MyPageLinkStatus; lineUserId: string | null };
 
 const STATUS_OPTIONS: Array<{ value: ReservationStatus | 'all'; label: string }> = [
   { value: 'all', label: 'すべて' },
@@ -227,6 +228,30 @@ function uniqueOptions(values: Array<string | null | undefined>) {
   );
 }
 
+function resolveMyPageStatus(
+  reservation: GuestReservationRow,
+  statusMap: Record<string, MyPageStatusEntry>,
+): MyPageStatusEntry {
+  const fetchedStatus = statusMap[reservation.id];
+  const reservationLineUserId =
+    typeof reservation.user_identifier === 'string' && reservation.user_identifier.trim().length > 0
+      ? reservation.user_identifier.trim()
+      : null;
+
+  if (reservationLineUserId) {
+    return {
+      linkStatus: 'linked',
+      lineUserId: fetchedStatus?.lineUserId ?? reservationLineUserId,
+    };
+  }
+
+  if (fetchedStatus) {
+    return fetchedStatus;
+  }
+
+  return { linkStatus: 'unlinked', lineUserId: null };
+}
+
 export default function AdminReservationsPage() {
   const [reservations, setReservations] = useState<GuestReservationRow[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
@@ -252,7 +277,7 @@ export default function AdminReservationsPage() {
   const [routeFilter, setRouteFilter] = useState('all');
   const [mypageLinkFilter, setMypageLinkFilter] = useState<MyPageLinkStatus | 'all'>('all');
   const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
-  const [mypageStatuses, setMypageStatuses] = useState<Record<string, { linkStatus: MyPageLinkStatus; lineUserId: string | null }>>({});
+  const [mypageStatuses, setMypageStatuses] = useState<Record<string, MyPageStatusEntry>>({});
   const [editingReservation, setEditingReservation] = useState<GuestReservationRow | null>(null);
   const [editingSaving, setEditingSaving] = useState(false);
 
@@ -300,6 +325,10 @@ export default function AdminReservationsPage() {
         | null;
 
       if (!cancelled) {
+        if (!response.ok) {
+          setMypageStatuses({});
+          return;
+        }
         setMypageStatuses(
           Object.fromEntries(
             Object.entries(payload?.statuses ?? {}).map(([reservationId, status]) => [
@@ -328,11 +357,11 @@ export default function AdminReservationsPage() {
     () =>
       reservations.map((reservation) => {
         const memoFields = parseMemoFields(reservation.special_requests);
-        const mypageStatus = mypageStatuses[reservation.id];
+        const mypageStatus = resolveMyPageStatus(reservation, mypageStatuses);
         const mypageLinkLabel =
-          mypageStatus?.linkStatus === 'linked'
+          mypageStatus.linkStatus === 'linked'
             ? 'LINE連携済み'
-            : mypageStatus?.linkStatus === 'support'
+            : mypageStatus.linkStatus === 'support'
               ? 'サポート確認のみ'
               : '未連携';
         const selectedSiteNumbers = getSelectedSiteNumbers(reservation.selected_site_numbers);
@@ -378,7 +407,7 @@ export default function AdminReservationsPage() {
     () =>
       reservationFilterRows
         .filter(({ reservation, address, route, planNames, siteNumbers, stayDates, guests }) => {
-          const mypageStatus = mypageStatuses[reservation.id];
+          const mypageStatus = resolveMyPageStatus(reservation, mypageStatuses);
           if (statusFilter !== 'all' && reservation.status !== statusFilter) return false;
           if (
             nameKeyword.trim().length > 0 &&
@@ -396,7 +425,7 @@ export default function AdminReservationsPage() {
           if (siteNumberFilter !== 'all' && !siteNumbers.includes(siteNumberFilter)) return false;
           if (guestsFilter !== 'all' && guests !== guestsFilter) return false;
           if (routeFilter !== 'all' && route !== routeFilter) return false;
-          if (mypageLinkFilter !== 'all' && (mypageStatus?.linkStatus ?? 'unlinked') !== mypageLinkFilter) return false;
+          if (mypageLinkFilter !== 'all' && mypageStatus.linkStatus !== mypageLinkFilter) return false;
           return true;
         })
         .map(({ reservation }) => reservation),
@@ -530,11 +559,11 @@ export default function AdminReservationsPage() {
       const XLSX = await import('xlsx');
       const rows = filteredReservations.map((reservation) => {
         const memoFields = parseMemoFields(reservation.special_requests);
-        const mypageStatus = mypageStatuses[reservation.id];
+        const mypageStatus = resolveMyPageStatus(reservation, mypageStatuses);
         const mypageLinkLabel =
-          mypageStatus?.linkStatus === 'linked'
+          mypageStatus.linkStatus === 'linked'
             ? 'LINE連携済み'
-            : mypageStatus?.linkStatus === 'support'
+            : mypageStatus.linkStatus === 'support'
               ? 'サポート確認のみ'
               : '未連携';
         const selectedSiteNumbers = getSelectedSiteNumbers(reservation.selected_site_numbers);
@@ -584,7 +613,7 @@ export default function AdminReservationsPage() {
           LINE表示名: memoFields.lineDisplayName ?? '',
           LINE_ID: memoFields.lineId ?? '',
           'LINE連携状態': mypageLinkLabel,
-          '予約のLINE ID': mypageStatus?.lineUserId ?? '',
+          '予約のLINE ID': mypageStatus.lineUserId ?? '',
           プラン名: planNames,
           サイト番号: siteNumbers,
           サイト名: siteNames || reservation.site_name || '',
@@ -987,11 +1016,11 @@ export default function AdminReservationsPage() {
                 });
                 const reservationOptions = parseReservationOptions(reservation.options_json);
                 const optionsTotal = getOptionsTotal(reservation, reservationOptions);
-                const mypageStatus = mypageStatuses[reservation.id];
+                const mypageStatus = resolveMyPageStatus(reservation, mypageStatuses);
                 const mypageLinkLabel =
-                  mypageStatus?.linkStatus === 'linked'
+                  mypageStatus.linkStatus === 'linked'
                     ? 'LINE連携済み'
-                    : mypageStatus?.linkStatus === 'support'
+                    : mypageStatus.linkStatus === 'support'
                       ? '補助のみ'
                       : '未連携';
                 return (
@@ -1017,9 +1046,9 @@ export default function AdminReservationsPage() {
                       <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
                         <span
                           className={`rounded-full px-2 py-0.5 ${
-                            mypageStatus?.linkStatus === 'linked'
+                            mypageStatus.linkStatus === 'linked'
                               ? 'bg-emerald-100 text-emerald-700'
-                              : mypageStatus?.linkStatus === 'support'
+                              : mypageStatus.linkStatus === 'support'
                                 ? 'bg-amber-100 text-amber-700'
                                 : 'bg-gray-100 text-gray-600'
                           }`}
